@@ -102,4 +102,4 @@ Open `config.json` with Notepad (or TextEdit on Mac) and fill in the values you 
 *Note: Set `"simulation_mode": false` to actually use the Google Cloud connection.*
 
 ---
-**Made by Tomás González Bartomeu - PoltorProgrammer**
+**Made by Tomás González Bartomeu - PoltorProgrammer - (PoltorProgrammer@gmail.com)**
