@@ -1,4 +1,4 @@
-# User Manual & Configuration Guide
+# Google HealthCare API Document Anonymizer
 
 ## Installation & Usage Guide
 
