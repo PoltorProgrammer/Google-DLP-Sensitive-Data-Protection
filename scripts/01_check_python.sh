@@ -15,8 +15,7 @@ if ! command -v python3 &> /dev/null; then
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         # Linux
         echo "   Please install Python 3 via your package manager."
-        echo "   Example (Ubuntu/Debian): sudo apt update && sudo apt install python3 python3-venv python3-tk espeak"
-        echo "   (Note: 'espeak' is required for text-to-speech)"
+        echo "   Example (Ubuntu/Debian): sudo apt update && sudo apt install python3 python3-venv python3-tk"
     else
         echo "   Unknown OS. Please install Python 3 manually from https://www.python.org/downloads/"
     fi

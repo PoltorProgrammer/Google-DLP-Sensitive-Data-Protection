@@ -8,18 +8,10 @@ if not exist "config.json" (
         echo {
         echo     "google_cloud": {
         echo         "project_id": "ENTER_PROJECT_ID",
-        echo         "location": "us-central1",
-        echo         "dataset_id": "ENTER_DATASET",
-        echo         "fhir_store_id": "ENTER_SOURCE_STORE",
-        echo         "destination_dataset_id": "ENTER_DEST_DATASET",
-        echo         "destination_fhir_store_id": "ENTER_DEST_STORE",
         echo         "service_account_key_file": "credentials.json"
         echo     },
         echo     "app_settings": {
-        echo         "simulation_mode": true,
-        "default_save_format": "mp3",
-        "tts_rate": 150,
-        "tts_volume": 1.0
+        echo         "simulation_mode": true
         echo     }
         echo }
     ) > config.json

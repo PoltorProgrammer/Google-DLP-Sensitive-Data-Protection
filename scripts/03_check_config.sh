@@ -9,18 +9,10 @@ if [ ! -f "config.json" ]; then
 {
     "google_cloud": {
         "project_id": "ENTER_PROJECT_ID",
-        "location": "us-central1",
-        "dataset_id": "ENTER_DATASET",
-        "fhir_store_id": "ENTER_SOURCE_STORE",
-        "destination_dataset_id": "ENTER_DEST_DATASET",
-        "destination_fhir_store_id": "ENTER_DEST_STORE",
         "service_account_key_file": "credentials.json"
     },
     "app_settings": {
-        "simulation_mode": true,
-        "default_save_format": "mp3",
-        "tts_rate": 150,
-        "tts_volume": 1.0
+        "simulation_mode": true
     }
 }
 EOL

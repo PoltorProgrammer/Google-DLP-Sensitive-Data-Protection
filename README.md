@@ -45,32 +45,16 @@ This section explains how to set up the Google Cloud resources required for **Re
 3.  Give it a name (e.g., `clinical-data-app`) and click **Create**.
 4.  Copy the **Project ID** (it might be `clinical-data-app-12345`). You will need this for `config.json`.
 
-### Step 2: Enable the Healthcare API
-1.  In the search bar at the top, type **"Cloud Healthcare API"** and select it.
+### Step 2: Enable the DLP API
+1.  In the search bar at the top, type **"Data Loss Prevention API"** and select it.
 2.  Click **Enable**.
 
-### Step 3: Create Dataset & FHIR Stores
-1.  Go to the **[Healthcare Browser](https://console.cloud.google.com/healthcare/browser)** in the console.
-2.  Click **Create Dataset**.
-    *   **ID**: e.g., `main-dataset`.
-    *   **Region**: e.g., `us-central1`.
-    *   Click **Create**.
-3.  Click on your new dataset to open it.
-4.  Click **Create Data Store**.
-    *   **Type**: Select **FHIR**.
-    *   **ID**: `source-store` (This is where you upload raw documents).
-    *   Click **Create**.
-5.  Repeat to create a second store for the output:
-    *   **Type**: FHIR.
-    *   **ID**: `dest-store` (This is where cleaned data goes).
-    *   Click **Create**.
-
-### Step 4: Get Credentials (The Key File)
-The app needs permission to access these stores.
+### Step 3: Get Credentials (The Key File)
+The app needs permission to access the DLP service.
 1.  Go to **[IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)**.
 2.  Click **Create Service Account**.
-    *   **Name**: `app-access`.
-    *   **Access**: Give it the role **"Healthcare FHIR Store Editor"** (or Owner for testing).
+    *   **Name**: `dlp-access`.
+    *   **Access**: Give it the role **"DLP User"** (or Owner for testing).
     *   Click **Done**.
 3.  Click on the email address of the service account you just created.
 4.  Go to the **Keys** tab (at the top).
@@ -80,22 +64,16 @@ The app needs permission to access these stores.
     *   **Action**: Rename this file to `credentials.json` and move it into the `Google-HealthCare-API` folder (where the `.bat` files are).
 
 ### Step 5: Update config.json
-Open `config.json` with Notepad (or TextEdit on Mac) and fill in the values you just created:
+Open `config.json` with Notepad (or TextEdit on Mac) and fill in your Project ID:
 
 ```json
 {
     "google_cloud": {
         "project_id": "YOUR_PROJECT_ID_FROM_STEP_1",
-        "location": "us-central1",
-        "dataset_id": "main-dataset",
-        "fhir_store_id": "source-store",
-        "destination_dataset_id": "main-dataset",
-        "destination_fhir_store_id": "dest-store",
         "service_account_key_file": "credentials.json"
     },
     "app_settings": {
-        "simulation_mode": false, 
-        ...
+        "simulation_mode": false
     }
 }
 ```

@@ -5,10 +5,10 @@ import sys
 import time
 import threading
 import json
-import pyttsx3
+
 
 # Note: For actual Google Cloud Healthcare API integration, you would import your module
-# from deidentify_fhir_store import deidentify_fhir_store
+from dlp_processor import DLPProcessor
 
 class LocalFileProcessorApp:
     def __init__(self, root):
@@ -23,12 +23,8 @@ class LocalFileProcessorApp:
         self.is_processing = False
         self.config = self.load_config()
         
-        # Initialize TTS Engine
-        try:
-            self.tts_engine = pyttsx3.init()
-        except Exception as e:
-            print(f"Warning: TTS Engine could not initialize: {e}")
-            self.tts_engine = None
+        # Initialize TTS Engine - REMOVED
+        self.tts_engine = None
 
     def load_config(self):
         try:
@@ -45,49 +41,7 @@ class LocalFileProcessorApp:
         
     # ... (skipping unchanged parts) ...
     
-        # 3. Download / Save Audio
-        default_format = app_settings.get('default_save_format', 'mp3')
-        
-        # On Mac, 'say' command produces .aiff by default if not specified, but we can try flexible handling
-        if not self.tts_engine and sys.platform == 'darwin':
-             default_format = 'aiff'
 
-        save_path = filedialog.asksaveasfilename(
-            title=f"Save Audio for {current_file_name}",
-            initialfile=f"{os.path.splitext(current_file_name)[0]}_audio.{default_format}",
-            defaultextension=f".{default_format}",
-            filetypes=[(f"{default_format.upper()} Audio", f"*.{default_format}"), ("All Files", "*.*")]
-        )
-        
-        if save_path:
-            try:
-                self.status_var.set(f"Generating audio for {current_file_name}...")
-                self.root.update()
-                
-                if self.tts_engine:
-                    # Configure TTS
-                    rate = app_settings.get('tts_rate', 150)
-                    volume = app_settings.get('tts_volume', 1.0)
-                    self.tts_engine.setProperty('rate', rate)
-                    self.tts_engine.setProperty('volume', volume)
-                    
-                    # Generate
-                    self.tts_engine.save_to_file(processed_text, save_path)
-                    self.tts_engine.runAndWait()
-                elif sys.platform == 'darwin':
-                    # Fallback for Mac (built-in 'say' command)
-                    # Note: 'say' -o supports aiff, mp4/m4a. MP3 requires extra libraries usually, but let's try default.
-                    clean_text = processed_text.replace('"', '\\"')
-                    cmd = f'say -o "{save_path}" "{clean_text}"'
-                    ret = os.system(cmd)
-                    if ret != 0:
-                        raise Exception("Mac 'say' command failed.")
-                else:
-                    raise Exception("No TTS engine available.")
-                
-                self.status_var.set(f"Saved audio to {os.path.basename(save_path)}")
-            except Exception as e:
-                messagebox.showerror("TTS Error", f"Failed to generate audio: {e}")
 
         self.btn_select = tk.Button(select_frame, text="Select Data Folder", command=self.select_folder)
         self.btn_select.pack(side=tk.LEFT)
@@ -188,12 +142,34 @@ class LocalFileProcessorApp:
                 # 0. Setup Credentials
                 cloud_config = self.config.get('google_cloud', {})
                 key_file = cloud_config.get('service_account_key_file', '')
+                
                 if key_file and os.path.exists(key_file):
                     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = key_file
                 
-                print(f"Triggering Real API for {current_file_name} in {cloud_config.get('project_id')}...")
-                time.sleep(2)
-                processed_text = f"REAL MODE: Processed {current_file_name} via Google Healthcare API."
+                project_id = cloud_config.get('project_id')
+                if not project_id or project_id == "YOUR_PROJECT_ID_HERE":
+                    raise ValueError("Please configure a valid Project ID in config.json")
+                
+                # Initialize DLP
+                processor = DLPProcessor(project_id, key_file)
+                
+                # READ FILE CONTENT (Text support for now)
+                file_path = os.path.join(self.source_folder, current_file_name)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    original_text = f.read()
+                
+                print(f"De-identifying {current_file_name} via Google Cloud DLP...")
+                processed_text = processor.deidentify_text(original_text)
+                
+                # Save Result
+                output_folder = os.path.join(self.source_folder, "processed")
+                os.makedirs(output_folder, exist_ok=True)
+                output_path = os.path.join(output_folder, f"anonymized_{current_file_name}")
+                
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(processed_text)
+                    
+                processed_text = f"SUCCESS: Saved to {output_path}"
 
         except Exception as e:
             messagebox.showerror("Processing Error", f"Error processing {current_file_name}:\n{e}")
@@ -205,51 +181,7 @@ class LocalFileProcessorApp:
         self.processed_files.append(current_file_name)
         self.list_processed.insert(tk.END, current_file_name)
         
-        # 3. Download / Save Audio
-        default_format = app_settings.get('default_save_format', 'mp3')
-        
-        # On Mac, 'say' command produces .aiff by default if not specified so we adapt
-        if not self.tts_engine and sys.platform == 'darwin':
-             default_format = 'aiff'
 
-        save_path = filedialog.asksaveasfilename(
-            title=f"Save Audio for {current_file_name}",
-            initialfile=f"{os.path.splitext(current_file_name)[0]}_audio.{default_format}",
-            defaultextension=f".{default_format}",
-            filetypes=[(f"{default_format.upper()} Audio", f"*.{default_format}"), ("All Files", "*.*")]
-        )
-        
-        if save_path:
-            try:
-                self.status_var.set(f"Generating audio for {current_file_name}...")
-                self.root.update()
-                
-                if self.tts_engine:
-                    # Configure TTS
-                    rate = app_settings.get('tts_rate', 150)
-                    volume = app_settings.get('tts_volume', 1.0)
-                    self.tts_engine.setProperty('rate', rate)
-                    self.tts_engine.setProperty('volume', volume)
-                    
-                    # Generate
-                    self.tts_engine.save_to_file(processed_text, save_path)
-                    self.tts_engine.runAndWait()
-                elif sys.platform == 'darwin':
-                    # Fallback for Mac (built-in 'say' command)
-                    # Note: 'say' -o supports aiff, mp4/m4a.
-                    clean_text = processed_text.replace('"', '\\"')
-                    cmd = f'say -o "{save_path}" "{clean_text}"'
-                    ret = os.system(cmd)
-                    if ret != 0:
-                        raise Exception("Mac 'say' command failed.")
-                else:
-                    raise Exception("No TTS engine available.")
-                
-                self.status_var.set(f"Saved audio to {os.path.basename(save_path)}")
-            except Exception as e:
-                messagebox.showerror("TTS Error", f"Failed to generate audio: {e}")
-        else:
-            self.status_var.set(f"Audio save skipped for {current_file_name}")
 
         # 4. Ask to Continue
         if self.files_to_process:
