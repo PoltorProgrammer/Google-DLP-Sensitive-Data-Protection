@@ -95,4 +95,4 @@ Once the application is running (see **Installation & Usage Guide** above):
 4.  **Completion**: Once finished, you will see a confirmation message. You can find your safe, anonymized documents in the `processed` folder inside your original source folder.
 
 ---
-**Made by Tomás González Bartomeu - PoltorProgrammer** - [![Email](https://img.shields.io/badge/Email-poltorprogrammer%40gmail.com-lightgrey?logo=gmail&labelColor=EA4335)](mailto:poltorprogrammer@gmail.com)
+**Made by Tomás González Bartomeu - PoltorProgrammer** - [![Email](https://img.shields.io/badge/Email-poltorprogrammer%40gmail.com-EA4335?logo=gmail&labelColor=lightgrey)](mailto:poltorprogrammer@gmail.com)
