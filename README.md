@@ -52,16 +52,23 @@ This section explains how to set up the **Google Cloud Healthcare API** resource
 1.  Go to the **Healthcare Browser** in the console.
 2.  **Create Dataset**: e.g., `clinical-dataset` (Region: `us-central1`).
 3.  **Create Input FHIR Store**: Inside the dataset, create a FHIR Store named `input-store`.
-    *   *Configuration*: Select "R4" or "STU3" (R4 recommended).
+    *   **Type**: Select "FHIR".
+    *   **ID**: Enter `input-store`.
+    *   **Version**: Select "R4" (Recommended).
+    *   **Other Settings**: Leave all checkboxes and advanced settings as default (do not change them).
 4.  *(Optional)*: The application handles the creation of output stores, or you can create a dedicated `anonymized-store` if you wish to configure it specifically.
 
 ### Step 4: Get Credentials (Service Account)
 1.  Go to **IAM & Admin > Service Accounts**.
 2.  Create a Service Account (e.g., `healthcare-admin`).
 3.  **Grant Roles**:
-    *   **Healthcare Dataset Administrator** (or finer grained control to read/write FHIR stores).
-    *   **Healthcare FHIR Store Editor**.
-4.  Create a **JSON Key** for this account and download it.
+    *   **Healthcare Dataset Administrator** (This single role provides full access to manage the dataset and stores).
+4.  **Create Key**:
+    *   Click on the newly created Service Account (the email address link).
+    *   Go to the **KEYS** tab (top menu).
+    *   Click **ADD KEY** > **Create new key**.
+    *   Select **JSON** and click **Create**.
+    *   The file will automatically download.
 5.  **Action**: Rename this file to `credentials.json` and move it into the project folder.
 
 ### Step 5: Update config.json
