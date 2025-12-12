@@ -95,11 +95,24 @@ class LocalFileProcessorApp:
         self.processed_files = [] # Clear history
         
         try:
+            output_folder = os.path.join(self.source_folder, "processed")
+            
             for f in os.listdir(self.source_folder):
                 full_path = os.path.join(self.source_folder, f)
-                if os.path.isfile(full_path):
+                
+                # Skip processed folder itself and non-files
+                if f == "processed" or not os.path.isfile(full_path):
+                    continue
+                    
+                # Check if already processed
+                expected_output = os.path.join(output_folder, f"anonymized_{f}")
+                if os.path.exists(expected_output):
+                    self.processed_files.append(f)
+                    self.list_processed.insert(tk.END, f"{f} (Completed)")
+                else:
                     self.files_to_process.append(f)
                     self.list_pending.insert(tk.END, f)
+                    
         except Exception as e:
             messagebox.showerror("Error", f"Failed to list files: {e}")
 
