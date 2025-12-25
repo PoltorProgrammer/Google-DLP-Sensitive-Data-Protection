@@ -91,4 +91,6 @@ Open `config.json` and fill in your details:
 
 ---
 
-**Made by Tomás González Bartomeu - PoltorProgrammer** - [![Email](https://img.shields.io/badge/Email-poltorprogrammer%40gmail.com-lightgrey?logo=gmail&labelColor=EA4335)](mailto:poltorprogrammer@gmail.com)
+**Made by Tomás González Bartomeu - PoltorProgrammer**
+
+[![Email](https://img.shields.io/badge/Email-poltorprogrammer%40gmail.com-red?logo=gmail&labelColor=lightgrey)](mailto:poltorprogrammer@gmail.com)
