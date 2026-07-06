@@ -105,13 +105,13 @@
       </div>
     </section>
 
-    <!-- Log -->
+    <!-- Log (collapsible, collapsed by default) -->
     <section class="card">
-      <div class="card-header">
-        <h2>Execution log</h2>
+      <div class="card-header log-toggle" id="logToggle" title="Show / hide the execution log">
+        <h2><span class="chev" id="logChev">▸</span> Execution log</h2>
         <span class="counts" id="envInfo"></span>
       </div>
-      <pre class="log" id="logPane"></pre>
+      <pre class="log hidden" id="logPane"></pre>
     </section>
   </div>
 

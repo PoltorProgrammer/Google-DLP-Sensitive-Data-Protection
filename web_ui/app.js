@@ -771,6 +771,14 @@ function wire() {
   $("tagZoomFit").addEventListener("click", fitWidth);
   $("btnDetectText").addEventListener("click", runOcrCurrentPage);
 
+  // Collapsible execution log
+  $("logToggle").addEventListener("click", () => {
+    const pane = $("logPane");
+    const hidden = pane.classList.toggle("hidden");
+    $("logChev").textContent = hidden ? "▸" : "▾";
+    if (!hidden) pane.scrollTop = pane.scrollHeight;
+  });
+
   // Keyboard: arrow keys turn pages when not typing in a field
   document.addEventListener("keydown", (e) => {
     if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;

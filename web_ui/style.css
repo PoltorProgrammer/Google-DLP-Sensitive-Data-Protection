@@ -125,7 +125,7 @@ main {
   padding: 12px 16px;
 }
 
-.card.grow { flex: 1; min-height: 180px; display: flex; flex-direction: column; }
+.card.grow { flex: 1; min-height: 280px; display: flex; flex-direction: column; }
 
 .card-header {
   display: flex;
@@ -260,11 +260,16 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   font-size: 12px;
   border-radius: 8px;
   padding: 10px 12px;
-  height: 150px;
+  height: 130px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  margin-top: 6px;
 }
+
+.log-toggle { cursor: pointer; user-select: none; margin-bottom: 0; }
+.log-toggle:hover h2 { color: var(--accent); }
+.chev { display: inline-block; width: 14px; color: var(--muted); }
 
 /* ---------- Modals ---------- */
 .modal-backdrop {

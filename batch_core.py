@@ -27,7 +27,7 @@ import fitz  # PyMuPDF
 
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.5.1"
+APP_VERSION = "2.5.2"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
