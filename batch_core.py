@@ -27,7 +27,7 @@ import fitz  # PyMuPDF
 
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.5.6"
+APP_VERSION = "2.6.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -125,6 +125,9 @@ class BatchEngine:
         gc.setdefault("project_id", "")
         gc.setdefault("location", "europe-west6")
         gc.setdefault("service_account_key_file", "credentials.json")
+        # Image inspection may fall back to the multi-region (europe/us) which stays
+        # in-jurisdiction; global is only ever used if this is explicitly enabled.
+        gc.setdefault("allow_global_fallback", False)
 
         oo = cfg.setdefault("output_options", {})
         oo.setdefault("redaction", True)
@@ -848,7 +851,8 @@ class BatchEngine:
                 location=cloud_config.get('location', 'global'),
                 credentials_file=cloud_config.get('service_account_key_file'),
                 log_callback=self.on_processor_log,
-                translation_location=TRANSLATION_REGION
+                translation_location=TRANSLATION_REGION,
+                allow_global_fallback=bool(cloud_config.get('allow_global_fallback', False))
             )
 
             output_folder = self.get_output_folder()
@@ -1083,6 +1087,7 @@ class BatchEngine:
                 credentials_file=gc.get("service_account_key_file"),
                 log_callback=self.on_processor_log,
                 translation_location=TRANSLATION_REGION,
+                allow_global_fallback=bool(gc.get("allow_global_fallback", False)),
             )
         return self._ocr_processor
 

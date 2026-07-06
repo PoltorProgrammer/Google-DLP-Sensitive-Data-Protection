@@ -17,7 +17,7 @@ import fitz  # PyMuPDF
 # Note: Integration with Google Cloud DLP (Data Loss Prevention)
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.5.6"
+APP_VERSION = "2.6.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -1039,7 +1039,8 @@ class LocalFileProcessorApp:
                 location=cloud_config.get('location', 'global'),
                 credentials_file=cloud_config.get('service_account_key_file'),
                 log_callback=self.log_message,
-                translation_location=TRANSLATION_REGION
+                translation_location=TRANSLATION_REGION,
+                allow_global_fallback=bool(cloud_config.get('allow_global_fallback', False))
             )
 
             # Setup output folder

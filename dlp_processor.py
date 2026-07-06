@@ -57,11 +57,16 @@ IMAGE_BYTE_TYPES = {
 
 class ClinicalDocumentProcessor:
     def __init__(self, project_id: str, location: str = "global", credentials_file: str = None,
-                 log_callback=None, translation_location: str = "us-central1"):
+                 log_callback=None, translation_location: str = "us-central1",
+                 allow_global_fallback: bool = False):
         self.project_id = project_id
         self.location = location or "global"
         self.translation_location = translation_location or "us-central1"
         self.log_callback = log_callback
+        self.allow_global_fallback = allow_global_fallback
+        # Some DLP features (image inspection) are unavailable in single regions
+        # and require the multi-region ('europe'/'us'). Resolved lazily per feature.
+        self._resolved_parents = {}
 
         if credentials_file:
             credentials_path = os.path.abspath(credentials_file)
@@ -93,10 +98,17 @@ class ClinicalDocumentProcessor:
         self.translate_client = translate.TranslationServiceClient()
 
     def log(self, message, metadata=None):
-        if self.log_callback:
-            self.log_callback(message, metadata)
-        else:
-            print(message)
+        # A failing log sink must never abort document processing
+        try:
+            if self.log_callback:
+                self.log_callback(message, metadata)
+            else:
+                print(message)
+        except Exception:
+            try:
+                print(message.encode("ascii", "replace").decode())
+            except Exception:
+                pass
 
     def _build_inspect_config(self, custom_terms: List[str] = None) -> dict:
         """Single source of truth for the inspection config used by every path."""
@@ -311,17 +323,79 @@ class ClinicalDocumentProcessor:
 
         return list(variations)
 
+    @staticmethod
+    def _is_unsupported_location_error(exc) -> bool:
+        return "not supported in this location" in str(exc).lower()
+
     def _inspect_with_retry(self, request, attempts=3):
-        """Retry transient DLP failures so one network blip doesn't abort a document."""
+        """Retry transient DLP failures so one network blip doesn't abort a document.
+        Deterministic errors (unsupported location) are raised immediately."""
         for attempt in range(attempts):
             try:
                 return self.dlp_client.inspect_content(request=request)
             except Exception as e:
-                if attempt == attempts - 1:
+                if self._is_unsupported_location_error(e) or attempt == attempts - 1:
                     raise
                 wait = 1.5 * (attempt + 1)
                 self.log(f"       Transient DLP error (attempt {attempt+1}/{attempts}): {e}. Retrying in {wait:.0f}s...")
                 time.sleep(wait)
+
+    def _location_chain(self):
+        """Candidate DLP locations, most specific first. Never leaves the configured
+        jurisdiction (e.g. europe-west6 -> europe) unless global fallback is
+        explicitly allowed in the configuration."""
+        chain = [self.location]
+        for prefix, multi in (("europe", "europe"),
+                              ("northamerica", "us"), ("southamerica", "us"), ("us", "us"),
+                              ("australia", "asia"), ("asia", "asia")):
+            if self.location.startswith(prefix) and self.location != multi:
+                if multi not in chain:
+                    chain.append(multi)
+                break
+        if self.allow_global_fallback and "global" not in chain:
+            chain.append("global")
+        return chain
+
+    def _with_location_fallback(self, feature, call):
+        """Run `call(parent)` against the configured location, falling back through
+        the multi-region (and optionally global) when DLP reports the feature is
+        not supported there. The working location is cached per feature."""
+        resolved = self._resolved_parents.get(feature)
+        if resolved:
+            parents = [resolved]
+        else:
+            parents = [f"projects/{self.project_id}/locations/{loc}" for loc in self._location_chain()]
+
+        last_error = None
+        for parent in parents:
+            try:
+                result = call(parent)
+            except Exception as e:
+                if self._is_unsupported_location_error(e):
+                    last_error = e
+                    continue
+                raise
+            if self._resolved_parents.get(feature) != parent:
+                self._resolved_parents[feature] = parent
+                loc = parent.rsplit("/", 1)[1]
+                if loc != self.location:
+                    if loc == "global":
+                        self.log(f"⚠ {feature.capitalize()} inspection is not offered in {self.location}; "
+                                 "using the GLOBAL endpoint (explicitly allowed in config).")
+                    else:
+                        self.log(f"🔒 {feature.capitalize()} inspection is not offered in {self.location}; "
+                                 f"using the multi-region '{loc}' - data remains within the same jurisdiction.")
+            return result
+
+        hint = ("" if self.allow_global_fallback
+                else " As a last resort you can set google_cloud.allow_global_fallback to true in config.json.")
+        raise RuntimeError(
+            f"DLP {feature} inspection is not supported in '{self.location}' or its multi-region."
+            f" Choose a supported location.{hint}") from last_error
+
+    def _inspect_with_fallback(self, feature, inspect_config, item):
+        return self._with_location_fallback(feature, lambda parent: self._inspect_with_retry(
+            request={"parent": parent, "inspect_config": inspect_config, "item": item}))
 
     def _process_image(self, filepath: str, inspect_config) -> bytes:
         with open(filepath, "rb") as f:
@@ -341,14 +415,14 @@ class ClinicalDocumentProcessor:
                 image_redactions.append({"info_type": cit["info_type"], "redaction_color": {"red": 0, "green": 0, "blue": 0}})
 
         byte_item = {"type_": bytes_type, "data": image_bytes}
-        response = self.dlp_client.redact_image(
+        response = self._with_location_fallback("image", lambda parent: self.dlp_client.redact_image(
             request={
-                "parent": self.dlp_parent,
+                "parent": parent,
                 "inspect_config": inspect_config,
                 "image_redactions": image_redactions,
                 "byte_item": byte_item
             }
-        )
+        ))
         return response.redacted_image
 
     def _process_pdf_doc(self, doc, inspect_config, output_config) -> dict:
@@ -389,9 +463,7 @@ class ClinicalDocumentProcessor:
                         img_bytes = pix.tobytes("png")
 
                         item = {"byte_item": {"type_": dlp_v2.ByteContentItem.BytesType.IMAGE_PNG, "data": img_bytes}}
-                        response = self._inspect_with_retry(
-                            request={"parent": self.dlp_parent, "inspect_config": inspect_config, "item": item}
-                        )
+                        response = self._inspect_with_fallback("image", inspect_config, item)
 
                         findings = response.result.findings
                         if findings:
@@ -433,6 +505,9 @@ class ClinicalDocumentProcessor:
             raise RuntimeError(
                 f"Output has {len(flattened_doc)} pages but the input has {total_pages} - aborting."
             )
+
+        # Report the location that actually processed the page images
+        stats["region"] = self._resolved_parents.get("image", self.dlp_parent)
 
         # --- GENERATE OUTPUTS ---
         results = {"stats": stats}
@@ -580,13 +655,7 @@ class ClinicalDocumentProcessor:
 
         for start in range(0, len(full_text), MAX_TEXT_INSPECT_CHARS):
             chunk = full_text[start:start + MAX_TEXT_INSPECT_CHARS]
-            response = self._inspect_with_retry(
-                request={
-                    "parent": self.dlp_parent,
-                    "inspect_config": verify_config,
-                    "item": {"value": chunk}
-                }
-            )
+            response = self._inspect_with_fallback("text", verify_config, {"value": chunk})
             for finding in response.result.findings:
                 result["dlp_findings"] += 1
                 name = finding.info_type.name

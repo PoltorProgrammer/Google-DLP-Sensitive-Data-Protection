@@ -68,6 +68,77 @@ def test_term_dictionary_respects_size_limit(monkeypatch):
     assert set(originals) <= set(words)
 
 
+def test_location_chain_stays_in_jurisdiction():
+    proc = make_proc()
+    proc.project_id = "p"
+    proc.allow_global_fallback = False
+
+    proc.location = "europe-west6"
+    assert proc._location_chain() == ["europe-west6", "europe"]
+    proc.location = "us-central1"
+    assert proc._location_chain() == ["us-central1", "us"]
+    proc.location = "northamerica-northeast1"
+    assert proc._location_chain() == ["northamerica-northeast1", "us"]
+    proc.location = "europe"   # already the multi-region
+    assert proc._location_chain() == ["europe"]
+    proc.location = "global"
+    assert proc._location_chain() == ["global"]
+
+    # global only ever appears when explicitly allowed
+    proc.allow_global_fallback = True
+    proc.location = "europe-west6"
+    assert proc._location_chain() == ["europe-west6", "europe", "global"]
+
+
+def test_unsupported_location_error_detection():
+    proc = make_proc()
+    assert proc._is_unsupported_location_error(
+        Exception('400 Image inspection is not supported in this location. [reason: "3"]'))
+    assert not proc._is_unsupported_location_error(Exception("503 deadline exceeded"))
+
+
+def test_location_fallback_resolves_and_caches():
+    logs = []
+    proc = make_proc(lambda msg, meta=None: logs.append(msg))
+    proc.project_id = "p"
+    proc.location = "europe-west6"
+    proc.allow_global_fallback = False
+    proc._resolved_parents = {}
+
+    calls = []
+    def fake_call(parent):
+        calls.append(parent)
+        if parent.endswith("europe-west6"):
+            raise Exception("400 Image inspection is not supported in this location.")
+        return "OK"
+
+    assert proc._with_location_fallback("image", fake_call) == "OK"
+    assert proc._resolved_parents["image"].endswith("/locations/europe")
+    assert any("multi-region 'europe'" in m for m in logs)
+
+    # second call goes straight to the cached parent
+    calls.clear()
+    assert proc._with_location_fallback("image", fake_call) == "OK"
+    assert calls == ["projects/p/locations/europe"]
+
+
+def test_location_fallback_exhausted_raises_clear_error():
+    proc = make_proc(lambda msg, meta=None: None)
+    proc.project_id = "p"
+    proc.location = "europe-west6"
+    proc.allow_global_fallback = False
+    proc._resolved_parents = {}
+
+    def always_unsupported(parent):
+        raise Exception("400 Image inspection is not supported in this location.")
+
+    try:
+        proc._with_location_fallback("image", always_unsupported)
+        raise AssertionError("should have raised")
+    except RuntimeError as e:
+        assert "allow_global_fallback" in str(e)
+
+
 def test_log_passes_structured_metadata():
     received = []
     proc = make_proc(lambda msg, meta=None: received.append((msg, meta)))

@@ -91,6 +91,7 @@ Open `config.json` and fill in your details:
 }
 ```
 *   *Note: `location` forces DLP processing to occur in that region (e.g., `europe-west6` for Zurich, `europe-west3` for Frankfurt) for compliance. Every DLP request carries this region, and the Vision OCR is pinned to the matching EU/US endpoint.*
+*   *Image inspection caveat: Google does not offer DLP **image** inspection in single regions — only in the multi-regions (`europe`, `us`). Page images therefore automatically fall back from e.g. `europe-west6` to the EU multi-region `europe`, so **data still never leaves the jurisdiction**; text inspection stays in the configured region. The `global` endpoint is never used unless you explicitly set `google_cloud.allow_global_fallback` to `true`.*
 *   *Exception: the optional **translation** feature is processed by Google in `us-central1` (US) — document translation is not available in EU regions. Only already-redacted copies are ever sent there, and the app shows a warning whenever translation is enabled.*
 
 All other options (output folder, overwrite policy, outputs to generate, redaction passes, translation, verification scan, audit trail) can be changed from the **⚙ Settings** dialog inside the app — no manual JSON editing needed.
