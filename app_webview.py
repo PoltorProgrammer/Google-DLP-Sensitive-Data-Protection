@@ -45,10 +45,17 @@ class Api:
             "env": {"gpu": self._engine.gpu_name, "ping": self._engine.current_ping},
         }
 
+    @staticmethod
+    def _folder_dialog():
+        import webview
+        try:
+            return webview.FileDialog.FOLDER  # pywebview >= 5.4
+        except AttributeError:
+            return webview.FOLDER_DIALOG      # older versions
+
     # --- folders --------------------------------------------------------
     def choose_source_folder(self):
-        import webview
-        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        result = self._window.create_file_dialog(self._folder_dialog())
         if result:
             folder = result[0] if isinstance(result, (list, tuple)) else result
             self._engine.set_source_folder(folder)
@@ -63,8 +70,7 @@ class Api:
         raise ValueError("Not a folder.")
 
     def choose_output_folder(self):
-        import webview
-        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        result = self._window.create_file_dialog(self._folder_dialog())
         if result:
             folder = result[0] if isinstance(result, (list, tuple)) else result
             src = self._engine.source_folder
