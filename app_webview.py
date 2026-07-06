@@ -166,9 +166,8 @@ def run_webview():
     webview.start(debug=False)
 
 
-def run_tkinter_fallback():
-    print("pywebview is not installed - starting the classic interface instead.")
-    print("(Run: pip install pywebview  to enable the modern UI)")
+def run_tkinter_fallback(reason):
+    print(f"Modern UI unavailable ({reason}) - starting the classic interface instead.")
     import tkinter as tk
     from batch_processor_gui import LocalFileProcessorApp
     root = tk.Tk()
@@ -180,11 +179,13 @@ def run_tkinter_fallback():
 if __name__ == "__main__":
     try:
         import webview  # noqa: F401
-        has_webview = True
     except ImportError:
-        has_webview = False
+        run_tkinter_fallback("pywebview is not installed - run: pip install pywebview")
+        sys.exit(0)
 
-    if has_webview:
+    try:
         run_webview()
-    else:
-        run_tkinter_fallback()
+    except Exception as e:
+        # e.g. Linux without GTK/QT WebKit, or a broken WebView2 runtime:
+        # 'import webview' succeeds but starting the window fails.
+        run_tkinter_fallback(f"could not start the web view: {e}")

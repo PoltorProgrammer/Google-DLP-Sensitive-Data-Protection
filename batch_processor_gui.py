@@ -17,7 +17,7 @@ import fitz  # PyMuPDF
 # Note: Integration with Google Cloud DLP (Data Loss Prevention)
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.5.2"
+APP_VERSION = "2.5.3"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -1496,6 +1496,8 @@ class LocalFileProcessorApp:
         if sys.platform == "win32":
             base = os.environ.get("APPDATA", os.path.expanduser("~"))
             return os.path.join(base, "MediXtract")
+        if sys.platform == "darwin":
+            return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "MediXtract")
         return os.path.join(os.path.expanduser("~"), ".config", "medixtract")
 
     @staticmethod
@@ -1562,6 +1564,13 @@ class LocalFileProcessorApp:
             shutil.move(key_path, new_path)
             if sys.platform == "win32":
                 self.restrict_file_acl(new_path)
+            else:
+                # macOS/Linux: owner-only permissions (same intent as the Windows ACL)
+                try:
+                    os.chmod(secure_dir, 0o700)
+                    os.chmod(new_path, 0o600)
+                except OSError as e:
+                    print(f"Could not chmod key file: {e}")
 
             gc["service_account_key_file"] = new_path
             self.config["google_cloud"] = gc

@@ -11,23 +11,34 @@ if not exist "config.json" (
         echo         "location": "europe-west6",
         echo         "service_account_key_file": "credentials.json"
         echo     },
+        echo     "output_options": {
+        echo         "redaction": true,
+        echo         "redaction_iterations": 1,
+        echo         "selectable_text_copy": true,
+        echo         "non_selectable_text_copy": false,
+        echo         "translation_redaction_iterations": 0
+        echo     },
+        echo     "translation": {
+        echo         "enabled": false,
+        echo         "target_language_code": "en"
+        echo     },
         echo     "app_settings": {
-        echo         "simulation_mode": true
+        echo         "output_folder": "",
+        echo         "overwrite_policy": "skip",
+        echo         "verification_scan": true,
+        echo         "audit_log": true
         echo     }
         echo }
     ) > config.json
+    echo    [!] Edit config.json and set your Google Cloud project_id (see README^).
 )
 
-:: Check for credentials used in REAL mode
-set "creds_exist=false"
-if exist "credentials.json" set "creds_exist=true"
-
-:: If not found, check if simulate mode is on. 
-:: We won't block execution, just warn.
-if "%creds_exist%"=="false" (
-    echo    [INFO] 'credentials.json' not found. 
-    echo           App will likely run in SIMULATION MODE only.
-    echo           (To fix: Place your Google Cloud JSON key here and rename it to credentials.json^)
+:: The key may legitimately live in the per-user secure folder instead of here;
+:: the app validates the configured location itself and guides the user.
+if not exist "credentials.json" (
+    echo    [INFO] No credentials.json in the app folder.
+    echo           Fine if the app already moved it to the secure per-user folder;
+    echo           otherwise follow the README to create one.
 )
 
 echo    [OK] Configuration verified.

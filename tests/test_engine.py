@@ -214,6 +214,37 @@ def test_credentials_status_missing_in_clean_dir(engine):
     assert engine.credentials_status()["state"] == "missing"
 
 
+def test_secure_credentials_dir_is_platform_appropriate():
+    import sys
+    d = BatchEngine.get_secure_credentials_dir()
+    if sys.platform == "win32":
+        assert "MediXtract" in d
+    elif sys.platform == "darwin":
+        assert os.path.join("Library", "Application Support", "MediXtract") in d
+    else:
+        assert os.path.join(".config", "medixtract") in d
+
+
+def test_moved_key_gets_owner_only_permissions(engine, tmp_path, monkeypatch):
+    """After relocation the key must be restricted: ACL on Windows, 0600 on POSIX."""
+    import sys
+    if sys.platform == "win32":
+        pytest.skip("Windows uses icacls ACLs, which need a real user context")
+
+    key = tmp_path / "credentials.json"
+    key.write_text("{}")
+    secure_dir = tmp_path / "secure"
+    monkeypatch.setattr(engine, "credentials_status", lambda: {
+        "state": "in_project", "path": str(key), "secure_dir": str(secure_dir)})
+
+    engine.config["google_cloud"]["service_account_key_file"] = str(key)
+    new_path = engine.move_credentials_to_secure_location()
+    assert os.path.exists(new_path)
+    assert not key.exists()
+    assert (os.stat(new_path).st_mode & 0o777) == 0o600
+    assert (os.stat(str(secure_dir)).st_mode & 0o777) == 0o700
+
+
 # ---------------- click-to-tag source preview ----------------
 
 def test_source_preview_extracts_text_layer_words(engine, tmp_path):
