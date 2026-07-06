@@ -1,6 +1,9 @@
 /* Clinical Document Processor - fully local stylesheet (no external fonts/assets) */
 
 :root {
+  color-scheme: light;
+  --scroll-thumb: #c3ccd9;
+  --scroll-thumb-hover: #a8b3c4;
   --bg: #f4f6f9;
   --card: #ffffff;
   --text: #1e2430;
@@ -21,6 +24,9 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
+    --scroll-thumb: #3a4556;
+    --scroll-thumb-hover: #4d5a6e;
     --bg: #12161d;
     --card: #1b212b;
     --text: #e6eaf1;
@@ -41,6 +47,22 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ---------- Scrollbars follow the app theme ---------- */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* The log pane is dark in BOTH themes - keep its scrollbar dark too */
+.log::-webkit-scrollbar-thumb { background: #3c4c66; background-clip: content-box; }
+.log::-webkit-scrollbar-thumb:hover { background: #4d5f7d; background-clip: content-box; }
 
 body {
   font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
