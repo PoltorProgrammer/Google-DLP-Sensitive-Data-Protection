@@ -57,25 +57,6 @@
       </div>
     </section>
 
-    <!-- Keywords -->
-    <section class="card">
-      <div class="card-header">
-        <h2 id="kwTitle">Redaction keywords</h2>
-        <span class="hint" id="kwHint"></span>
-      </div>
-      <div class="kw-input-row">
-        <input type="text" id="kwInput" placeholder="Type a name or ID and press Enter…" autocomplete="off">
-        <button class="btn" id="btnAddKw">Add</button>
-        <label class="tag-target" id="tagTargetWrap">for
-          <select id="tagTarget">
-            <option value="file" selected>this document</option>
-            <option value="global">all documents</option>
-          </select>
-        </label>
-      </div>
-      <div class="chips" id="chipContainer"></div>
-    </section>
-
     <!-- Controls + progress -->
     <section class="card">
       <div class="controls-row">
@@ -156,8 +137,19 @@
     </div>
 
     <div class="viewer-tags">
-      <span class="hint" id="tagChipsLabel">This document's tags (plus global ones marked G):</span>
+      <div class="tag-add-row">
+        <span class="hint tag-chips-label" id="tagChipsLabel">This document's tags:</span>
+        <input type="text" id="kwInput" placeholder="Type a name/ID and press Enter…" autocomplete="off">
+        <button class="btn btn-small" id="btnAddKw">Add</button>
+        <label class="tag-target" id="tagTargetWrap">for
+          <select id="tagTarget">
+            <option value="file" selected>this document</option>
+            <option value="global">all documents</option>
+          </select>
+        </label>
+      </div>
       <div class="chips" id="tagChips"></div>
+      <p class="hint">Tags expand automatically into combinations and misspellings — tagging "Tomas" and "Muller" also erases "T.Muller", "Muller Tomas", "Mu1ler"…</p>
     </div>
   </aside>
 </main>

@@ -82,7 +82,6 @@ function clearFiles() {
   state.selectedFile = null;
   $("filesBody").replaceChildren();
   $("emptyState").classList.add("hidden");
-  renderKeywordUI();
 }
 
 function addFileRow(name, status, pages, sizeMb) {
@@ -165,43 +164,7 @@ function selectFile(name) {
   for (const [n, entry] of state.files) {
     entry.tr.classList.toggle("selected", n === name);
   }
-  renderKeywordUI();
   showInViewer(name);
-}
-
-function renderKeywordUI() {
-  const sel = state.selectedFile;
-  $("kwTitle").textContent = sel ? `Tags — ${sel}` : "Redaction tags";
-  $("kwHint").textContent =
-    "Each document keeps its own tags: click a document, then click words on its pages. " +
-    "Switch to 'all documents' for terms that must be erased everywhere. " +
-    "Every tag is expanded into hundreds of spelling variants.";
-
-  const box = $("chipContainer");
-  box.replaceChildren();
-
-  const mkChip = (kw, isGlobal) => {
-    const chip = document.createElement("span");
-    chip.className = `chip ${isGlobal ? "chip-global" : "chip-file"}`;
-    const label = document.createElement("span");
-    label.textContent = isGlobal ? `${kw} (G)` : kw;
-    const x = document.createElement("button");
-    x.textContent = "×";
-    x.title = "Remove";
-    x.addEventListener("click", () => removeKeyword(kw));
-    chip.append(label, x);
-    box.appendChild(chip);
-  };
-
-  // The document's own tags come first; global (G) tags after
-  if (sel) {
-    for (const kw of (state.keywords.perFile[sel] || [])) {
-      if (!state.keywords.global.includes(kw)) mkChip(kw, false);
-    }
-  }
-  for (const kw of state.keywords.global) mkChip(kw, true);
-
-  updateTagIndicators();
 }
 
 function addKeyword() {
@@ -211,9 +174,9 @@ function addKeyword() {
   if (!val) return;
 
   const wantFile = $("tagTarget").value === "file";
-  const target = wantFile ? (tagState.name || state.selectedFile) : null;
+  const target = wantFile ? tagState.name : null;
   if (wantFile && !target) {
-    toast("Click a document first to add a file-specific keyword.", true);
+    toast("Click a document first to add one of its tags.", true);
     return;
   }
 
@@ -223,19 +186,7 @@ function addKeyword() {
   } else if (!state.keywords.global.includes(val)) {
     state.keywords.global.push(val);
   }
-  renderKeywordUI();
-  renderWordBoxes();  // refresh highlights in the viewer
-}
-
-function removeKeyword(kw) {
-  const sel = state.selectedFile;
-  if (sel && (state.keywords.perFile[sel] || []).includes(kw)) {
-    state.keywords.perFile[sel] = state.keywords.perFile[sel].filter((k) => k !== kw);
-  } else {
-    state.keywords.global = state.keywords.global.filter((k) => k !== kw);
-  }
-  renderKeywordUI();
-  renderWordBoxes();
+  renderWordBoxes();  // refreshes highlights, chips and tag counters
 }
 
 /* ---------------- log & progress ---------------- */
@@ -573,12 +524,12 @@ function toggleTagWord(word) {
     state.keywords.global.push(word);
   }
   renderWordBoxes();
-  renderKeywordUI();
 }
 
 function renderTagChips() {
   const box = $("tagChips");
   box.replaceChildren();
+  $("tagChipsLabel").textContent = tagState.name ? "This document's tags:" : "Global tags:";
 
   const mkChip = (kw, isGlobal) => {
     const chip = document.createElement("span");
@@ -593,7 +544,6 @@ function renderTagChips() {
       const fl = state.keywords.perFile[tagState.name];
       if (fl) state.keywords.perFile[tagState.name] = fl.filter((k) => k !== kw);
       renderWordBoxes();
-      renderKeywordUI();
     });
     chip.append(label, x);
     box.appendChild(chip);
@@ -843,7 +793,6 @@ async function init() {
   } catch (e) {
     toast("Could not reach the application backend.");
   }
-  renderKeywordUI();
   checkCredentials();
   setInterval(pump, 300);
 }

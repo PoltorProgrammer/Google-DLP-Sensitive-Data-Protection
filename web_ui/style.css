@@ -125,7 +125,7 @@ main {
   padding: 12px 16px;
 }
 
-.card.grow { flex: 1; min-height: 280px; display: flex; flex-direction: column; }
+.card.grow { flex: 1; min-height: 380px; display: flex; flex-direction: column; }
 
 .card-header {
   display: flex;
@@ -169,19 +169,7 @@ main {
 
 #folderCard.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
-/* ---------- Keywords ---------- */
-.kw-input-row { display: flex; gap: 8px; margin: 6px 0; }
-.kw-input-row input {
-  flex: 1;
-  font: inherit;
-  padding: 7px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-}
-.kw-input-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-
+/* ---------- Tags ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 8px; }
 .chip {
   display: inline-flex;
@@ -384,7 +372,23 @@ fieldset input[type="number"], fieldset select {
 }
 
 .viewer-tags { margin-top: 8px; }
-.viewer-tags .chips { margin-top: 4px; min-height: 4px; }
+.viewer-tags .chips { margin-top: 6px; min-height: 4px; }
+.viewer-tags > .hint { margin-top: 4px; display: block; }
+
+.tag-add-row { display: flex; align-items: center; gap: 8px; }
+.tag-chips-label { white-space: nowrap; }
+.tag-add-row input {
+  flex: 1;
+  min-width: 120px;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.tag-add-row input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .tag-count {
   font-size: 10.5px;
