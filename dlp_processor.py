@@ -594,6 +594,33 @@ class ClinicalDocumentProcessor:
 
         return result
 
+    def ocr_words(self, image_bytes: bytes, zoom: float = 1.0) -> List[dict]:
+        """OCR a page image and return words with bounding boxes in page
+        coordinates (divided back by the render zoom). Used by the click-to-tag
+        preview for scanned documents; the caller must keep results in memory
+        only - this is unredacted text."""
+        vision_image = vision.Image(content=image_bytes)
+        response = self.vision_client.document_text_detection(image=vision_image)
+
+        words_out = []
+        if response.full_text_annotation:
+            for page_v in response.full_text_annotation.pages:
+                for block in page_v.blocks:
+                    for paragraph in block.paragraphs:
+                        for word in paragraph.words:
+                            text = "".join(s.text for s in word.symbols)
+                            if not text.strip():
+                                continue
+                            vs = word.bounding_box.vertices
+                            xs = [v.x for v in vs]
+                            ys = [v.y for v in vs]
+                            words_out.append({
+                                "text": text,
+                                "x0": min(xs) / zoom, "y0": min(ys) / zoom,
+                                "x1": max(xs) / zoom, "y1": max(ys) / zoom,
+                            })
+        return words_out
+
     def translate_document(self, doc_bytes: bytes, target_language: str = "en") -> List[tuple]:
         """
         Translates a PDF document using Google Cloud Translation AI.

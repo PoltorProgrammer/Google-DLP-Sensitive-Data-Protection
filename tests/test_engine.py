@@ -211,6 +211,85 @@ def test_credentials_status_missing_in_clean_dir(engine):
     assert engine.credentials_status()["state"] == "missing"
 
 
+# ---------------- click-to-tag source preview ----------------
+
+def test_source_preview_extracts_text_layer_words(engine, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    write_pdf(src / "doc.pdf", text="Hello Maria", pages=2)
+    engine.source_folder = str(src)
+
+    prev = engine.get_source_preview("doc.pdf", page_number=0, zoom=2.0)
+    assert prev["page_count"] == 2
+    assert prev["has_text_layer"] is True and prev["ocr_done"] is True
+    assert prev["image"].startswith("data:image/png;base64,")
+
+    texts = [w["text"] for w in prev["words"]]
+    assert "Hello" in texts and "Maria" in texts
+
+    # Word coordinates must scale with the render zoom so hit-boxes align
+    at_zoom1 = engine.get_source_preview("doc.pdf", page_number=0, zoom=1.0)
+    w2 = next(w for w in prev["words"] if w["text"] == "Hello")
+    w1 = next(w for w in at_zoom1["words"] if w["text"] == "Hello")
+    assert abs(w2["x0"] - 2 * w1["x0"]) < 0.01
+    assert abs(w2["y1"] - 2 * w1["y1"]) < 0.01
+
+
+def test_source_preview_clamps_page_and_rejects_traversal(engine, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    write_pdf(src / "doc.pdf", pages=2)
+    (tmp_path / "outside.pdf").write_bytes(pdf_bytes())
+    engine.source_folder = str(src)
+
+    assert engine.get_source_preview("doc.pdf", page_number=99)["page"] == 1
+    assert engine.get_source_preview("missing.pdf") is None
+    assert engine.get_source_preview("../outside.pdf") is None
+
+
+def test_source_preview_scanned_page_reports_no_text(engine, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    # Image-only PDF: a page containing just a rendered pixmap, no text layer
+    img_doc = fitz.open()
+    page = img_doc.new_page()
+    text_data = pdf_bytes("Secret")
+    with fitz.open("pdf", text_data) as tdoc:
+        pix = tdoc.load_page(0).get_pixmap()
+    page.insert_image(page.rect, pixmap=pix)
+    img_doc.save(str(src / "scan.pdf"))
+    img_doc.close()
+    engine.source_folder = str(src)
+
+    prev = engine.get_source_preview("scan.pdf")
+    assert prev["has_text_layer"] is False
+    assert prev["ocr_done"] is False
+    assert prev["words"] == []
+    assert prev["ocr_available"] is False  # no credentials in tmp dir
+
+
+def test_ocr_source_page_requires_credentials(engine, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    write_pdf(src / "doc.pdf")
+    engine.source_folder = str(src)
+    with pytest.raises(ValueError, match="credentials"):
+        engine.ocr_source_page("doc.pdf", 0)
+
+
+def test_ocr_cache_is_served_without_new_calls(engine, tmp_path):
+    src = tmp_path / "data"
+    src.mkdir()
+    write_pdf(src / "doc.pdf")
+    engine.source_folder = str(src)
+    path = str(src / "doc.pdf")
+    # Pre-seed the RAM cache as if OCR had run (words stored at zoom 1.0)
+    engine._ocr_words_cache[engine._ocr_cache_key(path, 0)] = [
+        {"text": "Maria", "x0": 10, "y0": 20, "x1": 50, "y1": 30}
+    ]
+    assert engine.ocr_source_page("doc.pdf", 0) == 1  # cache hit, no credentials needed
+
+
 # ---------------- cloud-sync detection ----------------
 
 @pytest.fixture

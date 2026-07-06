@@ -27,7 +27,7 @@ import fitz  # PyMuPDF
 
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -73,6 +73,11 @@ class BatchEngine:
         self.gpu_name = "Detecting..."
         self.measurement_buffers = {"page_times": [], "save_times_per_mb": []}
         self.steps_since_calibration = 0
+
+        # Click-to-tag: OCR results for UNREDACTED source pages live in RAM only.
+        # Persisting them to disk would leak the very text we're trying to erase.
+        self._ocr_words_cache = {}
+        self._ocr_processor = None
 
         self.detect_environment()
         if self.config_load_error:
@@ -1029,6 +1034,130 @@ class BatchEngine:
             self.should_stop = False
             self.files_to_process = []
             self.emit("batch_finished")
+
+    # ------------------------------------------------------------------
+    # Source preview & click-to-tag (pre-processing keyword picking)
+    # ------------------------------------------------------------------
+
+    def _resolve_source_path(self, filename):
+        """Join filename to the source folder, refusing traversal outside it."""
+        if not self.source_folder:
+            return None
+        base = os.path.abspath(self.source_folder)
+        path = os.path.abspath(os.path.join(base, filename))
+        try:
+            if os.path.commonpath([path, base]) != base:
+                return None
+        except ValueError:
+            return None
+        return path if os.path.isfile(path) else None
+
+    def _ocr_cache_key(self, path, page_number):
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            mtime = 0
+        return (path, mtime, page_number)
+
+    def _ocr_credentials_ready(self):
+        gc = self.config.get("google_cloud", {})
+        key = gc.get("service_account_key_file", "")
+        return bool(gc.get("project_id")) and bool(key) and os.path.exists(os.path.abspath(key))
+
+    def _get_ocr_processor(self):
+        """Lazy processor for preview OCR - same region pinning as batch processing."""
+        if self._ocr_processor is None:
+            gc = self.config.get("google_cloud", {})
+            self._ocr_processor = ClinicalDocumentProcessor(
+                project_id=gc.get("project_id"),
+                location=gc.get("location", "global"),
+                credentials_file=gc.get("service_account_key_file"),
+                log_callback=self.on_processor_log,
+                translation_location=TRANSLATION_REGION,
+            )
+        return self._ocr_processor
+
+    def get_source_preview(self, filename, page_number=0, zoom=1.5):
+        """Render one page of the ORIGINAL document with word hit-boxes for
+        click-to-tag. Rendering and text-layer extraction are local (PyMuPDF);
+        scanned pages get word boxes only after an explicit ocr_source_page call."""
+        path = self._resolve_source_path(filename)
+        if not path:
+            return None
+
+        zoom = max(0.5, min(3.0, float(zoom)))
+        doc = fitz.open(path)
+        try:
+            page_count = len(doc)
+            page_number = max(0, min(int(page_number), page_count - 1))
+            page = doc.load_page(page_number)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            image_b64 = base64.b64encode(pix.tobytes("png")).decode()
+
+            # Local text layer: (x0, y0, x1, y1, word, block, line, word_no)
+            words = [
+                {"text": w[4],
+                 "x0": w[0] * zoom, "y0": w[1] * zoom,
+                 "x1": w[2] * zoom, "y1": w[3] * zoom}
+                for w in page.get_text("words") if w[4].strip()
+            ]
+            has_text_layer = len(words) > 0
+            ocr_done = has_text_layer
+
+            if not has_text_layer:
+                cached = self._ocr_words_cache.get(self._ocr_cache_key(path, page_number))
+                if cached is not None:
+                    ocr_done = True
+                    words = [
+                        {"text": w["text"],
+                         "x0": w["x0"] * zoom, "y0": w["y0"] * zoom,
+                         "x1": w["x1"] * zoom, "y1": w["y1"] * zoom}
+                        for w in cached
+                    ]
+
+            return {
+                "filename": filename,
+                "page": page_number,
+                "page_count": page_count,
+                "image": f"data:image/png;base64,{image_b64}",
+                "width": pix.width,
+                "height": pix.height,
+                "words": words,
+                "has_text_layer": has_text_layer,
+                "ocr_done": ocr_done,
+                "ocr_available": self._ocr_credentials_ready(),
+            }
+        finally:
+            doc.close()
+
+    def ocr_source_page(self, filename, page_number=0):
+        """Explicit user action: OCR one source page (region-pinned Vision) so a
+        scanned page becomes click-to-tag-able. Words are cached in RAM only."""
+        path = self._resolve_source_path(filename)
+        if not path:
+            raise ValueError("File not found in the source folder.")
+
+        key = self._ocr_cache_key(path, int(page_number))
+        if key in self._ocr_words_cache:
+            return len(self._ocr_words_cache[key])
+
+        if not self._ocr_credentials_ready():
+            raise ValueError("Google credentials are not configured - see the README to set up access.")
+
+        zoom = 3.0
+        doc = fitz.open(path)
+        try:
+            page_number = max(0, min(int(page_number), len(doc) - 1))
+            page = doc.load_page(page_number)
+            img_bytes = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png")
+        finally:
+            doc.close()
+
+        self.log(f"Detecting text on page {page_number+1} of {filename} (Cloud OCR, region-pinned)...")
+        words = self._get_ocr_processor().ocr_words(img_bytes, zoom=zoom)
+        self._ocr_words_cache[self._ocr_cache_key(path, page_number)] = words
+        self.log(f"Found {len(words)} words on page {page_number+1} - click any of them to tag.")
+        return len(words)
 
     # ------------------------------------------------------------------
     # Output preview (for the review workflow)

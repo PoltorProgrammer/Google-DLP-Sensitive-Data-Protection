@@ -130,6 +130,14 @@ function setFileStatus(name, status) {
     btn.addEventListener("click", (e) => { e.stopPropagation(); openPreview(name); });
     entry.actionCell.appendChild(btn);
   }
+  if (["pending", "failed"].includes(status)) {
+    const btn = document.createElement("button");
+    btn.className = "btn btn-small";
+    btn.textContent = "🏷 Tag";
+    btn.title = "Preview the original and click names/IDs to tag them for erasure";
+    btn.addEventListener("click", (e) => { e.stopPropagation(); openTagPreview(name); });
+    entry.actionCell.appendChild(btn);
+  }
   if (status === "processing") {
     entry.tr.scrollIntoView({ block: "nearest" });
   }
@@ -164,7 +172,7 @@ function renderKeywordUI() {
   $("kwTitle").textContent = sel ? `Keywords for: ${sel}` : "Global redaction keywords";
   $("kwHint").textContent = sel
     ? "These keywords apply only to the selected file (click the row again to go back to global)."
-    : "Names/IDs typed here are expanded into hundreds of spelling variants and burned out of every document. Select a file below to add file-specific keywords.";
+    : "Names/IDs are expanded into hundreds of spelling variants and burned out of every document. Tip: use 🏷 Tag on a file to click names directly on the page instead of typing.";
 
   const box = $("chipContainer");
   box.replaceChildren();
@@ -337,6 +345,171 @@ function showSummary(ev) {
 
   $("btnSummaryRetry").classList.toggle("hidden", !ev.failed.length);
   $("summaryModal").classList.remove("hidden");
+}
+
+/* ---------------- click-to-tag viewer ---------------- */
+
+const tagState = {
+  name: null, page: 0, zoom: 1.5, pageCount: 1,
+  words: [], hasText: false, ocrDone: false, ocrAvailable: false,
+  ocrConsent: new Set(),   // documents where the user already approved Cloud OCR
+  loading: false,
+};
+
+function cleanWord(text) {
+  // Strip punctuation from the edges, keep letters/digits (Unicode-aware: é, ü, ß…)
+  return (text || "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+}
+
+function taggedSetFor(name) {
+  const set = new Set(state.keywords.global.map((k) => k.toLowerCase()));
+  for (const k of (state.keywords.perFile[name] || [])) set.add(k.toLowerCase());
+  return set;
+}
+
+async function openTagPreview(name) {
+  tagState.name = name;
+  tagState.page = 0;
+  $("tagTitle").textContent = `Tag for erasure — ${name}`;
+  $("tagTarget").value = "global";
+  $("tagModal").classList.remove("hidden");
+  await loadTagPage();
+}
+
+async function loadTagPage() {
+  if (tagState.loading) return;
+  tagState.loading = true;
+  $("tagStatus").textContent = "Rendering…";
+  try {
+    const data = await apiCall(api().get_source_preview(tagState.name, tagState.page, tagState.zoom));
+    if (!data) { $("tagStatus").textContent = "File not found."; return; }
+
+    tagState.page = data.page;
+    tagState.pageCount = data.page_count;
+    tagState.words = data.words;
+    tagState.hasText = data.has_text_layer;
+    tagState.ocrDone = data.ocr_done;
+    tagState.ocrAvailable = data.ocr_available;
+
+    $("tagPageImg").src = data.image;
+    const stage = $("tagStage");
+    stage.style.width = `${data.width}px`;
+    stage.style.height = `${data.height}px`;
+    $("tagPageLabel").textContent = `${data.page + 1} / ${data.page_count}`;
+    $("tagPrev").disabled = data.page <= 0;
+    $("tagNext").disabled = data.page >= data.page_count - 1;
+    $("tagStatus").textContent = "";
+
+    renderWordBoxes();
+    updateOcrNotice();
+    tagState.loading = false;
+
+    // Consent already given for this document -> OCR further scanned pages automatically
+    if (!tagState.ocrDone && tagState.ocrAvailable && tagState.ocrConsent.has(tagState.name)) {
+      await runOcrCurrentPage();
+    }
+  } finally {
+    tagState.loading = false;
+  }
+}
+
+function updateOcrNotice() {
+  const needsOcr = !tagState.ocrDone;
+  $("ocrNotice").classList.toggle("hidden", !needsOcr);
+  const btn = $("btnDetectText");
+  btn.disabled = !tagState.ocrAvailable;
+  btn.title = tagState.ocrAvailable ? "" : "Configure Google credentials first (see README)";
+}
+
+async function runOcrCurrentPage() {
+  tagState.ocrConsent.add(tagState.name);
+  $("tagStatus").textContent = "Detecting text (Cloud OCR)…";
+  $("btnDetectText").disabled = true;
+  try {
+    await apiCall(api().ocr_source_page(tagState.name, tagState.page));
+    const data = await api().get_source_preview(tagState.name, tagState.page, tagState.zoom);
+    tagState.words = data.words;
+    tagState.ocrDone = data.ocr_done;
+    $("tagStatus").textContent = "";
+    renderWordBoxes();
+    updateOcrNotice();
+  } catch (e) {
+    $("tagStatus").textContent = "Text detection failed.";
+    $("btnDetectText").disabled = !tagState.ocrAvailable;
+  }
+}
+
+function renderWordBoxes() {
+  const stage = $("tagStage");
+  stage.querySelectorAll(".wordbox").forEach((el) => el.remove());
+  const tagged = taggedSetFor(tagState.name);
+
+  for (const w of tagState.words) {
+    const clean = cleanWord(w.text);
+    if (clean.length < 2) continue;
+    const isTagged = tagged.has(clean.toLowerCase());
+
+    const box = document.createElement("span");
+    box.className = "wordbox" + (isTagged ? " tagged" : "");
+    box.style.left = `${w.x0}px`;
+    box.style.top = `${w.y0}px`;
+    box.style.width = `${w.x1 - w.x0}px`;
+    box.style.height = `${w.y1 - w.y0}px`;
+    box.title = isTagged ? `Un-tag "${clean}"` : `Tag "${clean}" for erasure`;
+    box.addEventListener("click", () => toggleTagWord(clean));
+    stage.appendChild(box);
+  }
+  renderTagChips();
+}
+
+function toggleTagWord(word) {
+  const lower = word.toLowerCase();
+  const name = tagState.name;
+  const fileList = state.keywords.perFile[name] || [];
+  const inGlobal = state.keywords.global.some((k) => k.toLowerCase() === lower);
+  const inFile = fileList.some((k) => k.toLowerCase() === lower);
+
+  if (inGlobal || inFile) {
+    state.keywords.global = state.keywords.global.filter((k) => k.toLowerCase() !== lower);
+    if (state.keywords.perFile[name]) {
+      state.keywords.perFile[name] = fileList.filter((k) => k.toLowerCase() !== lower);
+    }
+  } else if ($("tagTarget").value === "file") {
+    (state.keywords.perFile[name] = state.keywords.perFile[name] || []).push(word);
+  } else {
+    state.keywords.global.push(word);
+  }
+  renderWordBoxes();
+  renderKeywordUI();
+}
+
+function renderTagChips() {
+  const box = $("tagChips");
+  box.replaceChildren();
+
+  const mkChip = (kw, isGlobal) => {
+    const chip = document.createElement("span");
+    chip.className = `chip ${isGlobal ? "chip-global" : "chip-file"}`;
+    const label = document.createElement("span");
+    label.textContent = isGlobal ? `${kw} (G)` : kw;
+    const x = document.createElement("button");
+    x.textContent = "×";
+    x.title = "Remove";
+    x.addEventListener("click", () => {
+      state.keywords.global = state.keywords.global.filter((k) => k !== kw);
+      const fl = state.keywords.perFile[tagState.name];
+      if (fl) state.keywords.perFile[tagState.name] = fl.filter((k) => k !== kw);
+      renderWordBoxes();
+      renderKeywordUI();
+    });
+    chip.append(label, x);
+    box.appendChild(chip);
+  };
+
+  for (const kw of state.keywords.global) mkChip(kw, true);
+  for (const kw of (state.keywords.perFile[tagState.name] || [])) {
+    if (!state.keywords.global.includes(kw)) mkChip(kw, false);
+  }
 }
 
 /* ---------------- preview modal ---------------- */
@@ -515,6 +688,14 @@ function wire() {
   // Preview
   $("btnPreviewClose").addEventListener("click", () => $("previewModal").classList.add("hidden"));
 
+  // Click-to-tag viewer
+  $("btnTagClose").addEventListener("click", () => $("tagModal").classList.add("hidden"));
+  $("tagPrev").addEventListener("click", () => { if (tagState.page > 0) { tagState.page--; loadTagPage(); } });
+  $("tagNext").addEventListener("click", () => { if (tagState.page < tagState.pageCount - 1) { tagState.page++; loadTagPage(); } });
+  $("tagZoomIn").addEventListener("click", () => { tagState.zoom = Math.min(3.0, tagState.zoom + 0.25); loadTagPage(); });
+  $("tagZoomOut").addEventListener("click", () => { tagState.zoom = Math.max(0.5, tagState.zoom - 0.25); loadTagPage(); });
+  $("btnDetectText").addEventListener("click", runOcrCurrentPage);
+
   // Credentials banner
   $("btnMoveKey").addEventListener("click", () => {
     apiCall(api().move_credentials()).then((newPath) => {
@@ -551,7 +732,7 @@ function wire() {
   });
 
   // Close modals on backdrop click
-  for (const id of ["settingsModal", "summaryModal", "previewModal"]) {
+  for (const id of ["settingsModal", "summaryModal", "previewModal", "tagModal"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) $(id).classList.add("hidden");
     });

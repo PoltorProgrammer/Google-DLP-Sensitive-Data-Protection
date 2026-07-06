@@ -179,7 +179,7 @@
   </div>
 </div>
 
-<!-- ============ Preview modal ============ -->
+<!-- ============ Preview modal (anonymized outputs) ============ -->
 <div class="modal-backdrop hidden" id="previewModal">
   <div class="modal modal-wide">
     <h2 id="previewTitle">Preview</h2>
@@ -187,6 +187,49 @@
     <div class="preview-pages" id="previewPages"></div>
     <div class="modal-actions">
       <button class="btn" id="btnPreviewClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Click-to-tag modal (original documents) ============ -->
+<div class="modal-backdrop hidden" id="tagModal">
+  <div class="modal modal-xl">
+    <h2 id="tagTitle">Tag for erasure</h2>
+    <p class="hint">Click any word to tag it for erasure everywhere — name combinations and OCR misspellings are covered automatically. Click a highlighted word to un-tag it.</p>
+
+    <div class="tag-toolbar">
+      <button class="btn btn-small" id="tagPrev">‹ Prev</button>
+      <span class="tag-page-label" id="tagPageLabel">1 / 1</span>
+      <button class="btn btn-small" id="tagNext">Next ›</button>
+      <span class="toolbar-sep"></span>
+      <button class="btn btn-small" id="tagZoomOut" title="Zoom out">−</button>
+      <button class="btn btn-small" id="tagZoomIn" title="Zoom in">+</button>
+      <span class="toolbar-sep"></span>
+      <label class="tag-target">Tag applies to:
+        <select id="tagTarget">
+          <option value="global">All files (erase everywhere)</option>
+          <option value="file">This file only</option>
+        </select>
+      </label>
+      <span class="hint" id="tagStatus"></span>
+    </div>
+
+    <div class="ocr-notice hidden" id="ocrNotice">
+      <span>Scanned page — no selectable text yet. Detect it to enable click-to-tag
+        <span class="hint">(Cloud OCR, region-pinned, ~0.1¢/page, kept in memory only)</span></span>
+      <button class="btn btn-small btn-primary" id="btnDetectText">Detect text</button>
+    </div>
+
+    <div class="tag-viewport">
+      <div class="tag-stage" id="tagStage">
+        <img id="tagPageImg" alt="Document page">
+      </div>
+    </div>
+
+    <div class="chips" id="tagChips"></div>
+
+    <div class="modal-actions">
+      <button class="btn" id="btnTagClose">Close</button>
     </div>
   </div>
 </div>

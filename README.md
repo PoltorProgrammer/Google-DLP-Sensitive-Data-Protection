@@ -122,6 +122,7 @@ The app uses a modern HTML interface rendered in a **native window** (via `pyweb
 *   **No server, no open ports, no browser** — the UI talks to Python directly in-process. Nothing is exposed on the network.
 *   **Fully offline UI** — every style and script is bundled locally and a strict Content-Security-Policy blocks any remote resource, so the interface itself can never contact the internet. Only the Python backend talks to Google's APIs.
 *   **Built-in review workflow** — documents flagged by the verification scan get a **Preview** button that renders the anonymized output right in the app (locally, via PyMuPDF) so you can check flagged pages without hunting through folders.
+*   **Click-to-tag** — press **🏷 Tag** on any pending document to preview the original and simply *click* names or IDs on the page to mark them for erasure everywhere. All occurrences highlight instantly across pages, and the keyword engine auto-generates full-name combinations and OCR misspellings from the words you click. Digital PDFs work offline; scanned pages offer an explicit "Detect text" button (region-pinned Cloud OCR, results kept in memory only — never written to disk).
 *   Drag & drop a folder onto the app, live per-file status badges, progress bar with time estimation, and a settings panel for everything.
 *   **Cloud-sync warnings** — if the source or output folder sits inside OneDrive, Dropbox, Google Drive or similar, the app warns you: synced folders copy the unredacted originals to the cloud outside the app's control.
 
