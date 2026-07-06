@@ -7,7 +7,7 @@
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  files: new Map(),          // name -> {tr, badgeCell, actionCell, status, pages, sizeMb}
+  files: new Map(),          // name -> {tr, badgeCell, status, pages, sizeMb}
   keywords: { global: [], perFile: {} },
   selectedFile: null,
   isProcessing: false,
@@ -100,19 +100,12 @@ function addFileRow(name, status, pages, sizeMb) {
   tdSize.textContent = sizeMb != null ? `${sizeMb} MB` : "—";
 
   const tdBadge = document.createElement("td");
-  const tdAction = document.createElement("td");
 
-  tr.append(tdName, tdPages, tdSize, tdBadge, tdAction);
+  tr.append(tdName, tdPages, tdSize, tdBadge);
   tr.addEventListener("click", () => selectFile(name));
-  tr.addEventListener("dblclick", () => {
-    const current = state.files.get(name);
-    if (!current) return;
-    if (["pending", "failed"].includes(current.status)) openTagPreview(name);
-    else if (current.status !== "processing") openOutputPreview(name);
-  });
   $("filesBody").appendChild(tr);
 
-  const entry = { tr, badgeCell: tdBadge, actionCell: tdAction, status, pages, sizeMb };
+  const entry = { tr, badgeCell: tdBadge, status, pages, sizeMb };
   state.files.set(name, entry);
   setFileStatus(name, status);
 }
@@ -128,24 +121,12 @@ function setFileStatus(name, status) {
   badge.textContent = spec.text;
   entry.badgeCell.replaceChildren(badge);
 
-  entry.actionCell.replaceChildren();
-  if (["success", "verified", "review", "completed"].includes(status)) {
-    const btn = document.createElement("button");
-    btn.className = "btn btn-small";
-    btn.textContent = "Preview";
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openOutputPreview(name); });
-    entry.actionCell.appendChild(btn);
-  }
-  if (["pending", "failed"].includes(status)) {
-    const btn = document.createElement("button");
-    btn.className = "btn btn-small";
-    btn.textContent = "🏷 Tag";
-    btn.title = "Preview the original and click names/IDs to tag them for erasure";
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openTagPreview(name); });
-    entry.actionCell.appendChild(btn);
-  }
   if (status === "processing") {
     entry.tr.scrollIntoView({ block: "nearest" });
+  }
+  // The document just finished while on screen -> show its anonymized result
+  if (tagState.name === name && ["success", "verified", "review"].includes(status)) {
+    showInViewer(name, "result");
   }
 }
 
@@ -166,19 +147,20 @@ function updateCounts() {
 /* ---------------- keywords (chips) ---------------- */
 
 function selectFile(name) {
-  state.selectedFile = (state.selectedFile === name) ? null : name;
+  state.selectedFile = name;
   for (const [n, entry] of state.files) {
-    entry.tr.classList.toggle("selected", n === state.selectedFile);
+    entry.tr.classList.toggle("selected", n === name);
   }
   renderKeywordUI();
+  showInViewer(name);
 }
 
 function renderKeywordUI() {
   const sel = state.selectedFile;
-  $("kwTitle").textContent = sel ? `Keywords for: ${sel}` : "Global redaction keywords";
-  $("kwHint").textContent = sel
-    ? "These keywords apply only to the selected file (click the row again to go back to global)."
-    : "Names/IDs are expanded into hundreds of spelling variants and burned out of every document. Tip: use 🏷 Tag on a file to click names directly on the page instead of typing.";
+  $("kwTitle").textContent = "Redaction keywords";
+  $("kwHint").textContent =
+    "Words are expanded into hundreds of spelling variants and erased from the documents. " +
+    "Click a document below to preview it, then click words on the page to tag them.";
 
   const box = $("chipContainer");
   box.replaceChildren();
@@ -210,13 +192,21 @@ function addKeyword() {
   input.value = "";
   if (!val) return;
 
-  if (state.selectedFile) {
-    const list = state.keywords.perFile[state.selectedFile] || (state.keywords.perFile[state.selectedFile] = []);
+  const wantFile = $("tagTarget").value === "file";
+  const target = wantFile ? (tagState.name || state.selectedFile) : null;
+  if (wantFile && !target) {
+    toast("Click a document first to add a file-specific keyword.", true);
+    return;
+  }
+
+  if (target) {
+    const list = state.keywords.perFile[target] || (state.keywords.perFile[target] = []);
     if (!list.includes(val)) list.push(val);
   } else if (!state.keywords.global.includes(val)) {
     state.keywords.global.push(val);
   }
   renderKeywordUI();
+  renderWordBoxes();  // refresh highlights in the viewer
 }
 
 function removeKeyword(kw) {
@@ -227,6 +217,7 @@ function removeKeyword(kw) {
     state.keywords.global = state.keywords.global.filter((k) => k !== kw);
   }
   renderKeywordUI();
+  renderWordBoxes();
 }
 
 /* ---------------- log & progress ---------------- */
@@ -255,6 +246,7 @@ function handleEvent(ev) {
       break;
     case "scan_start":
       clearFiles();
+      clearViewer();
       $("sourcePath").textContent = ev.folder;
       $("outputPath").textContent = ev.output_folder;
       break;
@@ -355,9 +347,12 @@ function showSummary(ev) {
 
 /* ---------------- click-to-tag viewer ---------------- */
 
+const SERVER_ZOOM = 2.0;  // render resolution; on-screen size is CSS-scaled for instant zoom
+
 const tagState = {
-  mode: "tag",             // "tag" = original document (click-to-tag) | "output" = anonymized result
-  name: null, page: 0, zoom: 1.5, pageCount: 1,
+  mode: "original",        // "original" (click-to-tag) | "result" (anonymized output)
+  name: null, page: 0, pageCount: 1,
+  scale: 1, autoFit: true, pageW: 0, pageH: 0,
   words: [], hasText: false, ocrDone: false, ocrAvailable: false,
   ocrConsent: new Set(),   // documents where the user already approved Cloud OCR
   loading: false,
@@ -374,55 +369,81 @@ function taggedSetFor(name) {
   return set;
 }
 
-function showTagChrome(on) {
-  // Tagging-specific UI (hints, target selector, chips, OCR notice) is hidden
-  // when the viewer shows an anonymized output.
-  $("tagHint").classList.toggle("hidden", !on);
-  $("tagTargetWrap").classList.toggle("hidden", !on);
-  $("tagChips").classList.toggle("hidden", !on);
-  if (!on) $("ocrNotice").classList.add("hidden");
+function clearViewer() {
+  tagState.name = null;
+  $("viewerTitle").textContent = "Document viewer";
+  $("tagSizer").classList.add("hidden");
+  $("viewerEmpty").classList.remove("hidden");
+  $("ocrNotice").classList.add("hidden");
+  $("tagPageLabel").textContent = "– / –";
+  $("tagStatus").textContent = "";
+  $("btnModeOriginal").classList.remove("active");
+  $("btnModeResult").classList.remove("active");
+  $("tagChips").replaceChildren();
 }
 
-async function openTagPreview(name) {
-  tagState.mode = "tag";
+async function showInViewer(name, forcedMode) {
+  const entry = state.files.get(name);
+  const status = entry ? entry.status : "pending";
+  const mode = forcedMode ||
+    (["success", "verified", "review", "completed"].includes(status) ? "result" : "original");
+  if (tagState.name !== name) {
+    tagState.page = 0;
+    tagState.autoFit = true;
+  }
   tagState.name = name;
-  tagState.page = 0;
-  $("tagTitle").textContent = `Tag for erasure — ${name}`;
-  $("tagTarget").value = "global";
-  showTagChrome(true);
-  $("tagModal").classList.remove("hidden");
-  await loadTagPage();
+  tagState.mode = mode;
+  await loadViewerPage();
 }
 
-async function openOutputPreview(name) {
-  tagState.mode = "output";
-  tagState.name = name;
-  tagState.page = 0;
-  $("tagTitle").textContent = `Anonymized output — ${name}`;
-  showTagChrome(false);
-  $("tagModal").classList.remove("hidden");
-  await loadTagPage();
+function setViewerMode(mode) {
+  if (!tagState.name) return;
+  showInViewer(tagState.name, mode);
 }
 
-async function loadTagPage() {
-  if (tagState.loading) return;
+function applyScale() {
+  const s = tagState.scale;
+  $("tagSizer").style.width = `${Math.round(tagState.pageW * s)}px`;
+  $("tagSizer").style.height = `${Math.round(tagState.pageH * s)}px`;
+  $("tagStage").style.transform = `scale(${s})`;
+}
+
+function fitWidth() {
+  if (!tagState.pageW) return;
+  const vp = $("tagViewport");
+  tagState.scale = Math.max(0.15, Math.min(1.5, (vp.clientWidth - 22) / tagState.pageW));
+  applyScale();
+}
+
+async function loadViewerPage() {
+  if (tagState.loading || !tagState.name) return;
   tagState.loading = true;
   $("tagStatus").textContent = "Rendering…";
+  $("btnModeOriginal").classList.toggle("active", tagState.mode === "original");
+  $("btnModeResult").classList.toggle("active", tagState.mode === "result");
+  $("viewerTitle").textContent = tagState.mode === "original"
+    ? `📄 ${tagState.name} — original (click words to tag)`
+    : `✅ ${tagState.name} — anonymized result`;
   try {
     let data;
     try {
-      data = (tagState.mode === "tag")
-        ? await api().get_source_preview(tagState.name, tagState.page, tagState.zoom)
-        : await api().get_output_preview(tagState.name, tagState.page, tagState.zoom);
+      data = (tagState.mode === "original")
+        ? await api().get_source_preview(tagState.name, tagState.page, SERVER_ZOOM)
+        : await api().get_output_preview(tagState.name, tagState.page, SERVER_ZOOM);
     } catch (e) {
       const msg = (e && e.message) ? e.message : String(e);
       $("tagStatus").textContent = `⚠ Could not render: ${msg.replace(/^.*?Error:\s*/, "")}`;
       return;
     }
     if (!data) {
-      $("tagStatus").textContent = (tagState.mode === "tag")
-        ? "⚠ File not found in the source folder."
-        : "⚠ No output file found for this document yet.";
+      if (tagState.mode === "result") {
+        // No output yet -> fall back to the original transparently
+        tagState.mode = "original";
+        tagState.loading = false;
+        $("tagStatus").textContent = "No anonymized output yet — showing the original.";
+        return loadViewerPage();
+      }
+      $("tagStatus").textContent = "⚠ File not found in the source folder.";
       return;
     }
 
@@ -432,24 +453,35 @@ async function loadTagPage() {
     tagState.hasText = data.has_text_layer;
     tagState.ocrDone = data.ocr_done;
     tagState.ocrAvailable = data.ocr_available;
+    tagState.pageW = data.width;
+    tagState.pageH = data.height;
 
-    $("tagPageImg").src = data.image;
+    $("viewerEmpty").classList.add("hidden");
+    $("tagSizer").classList.remove("hidden");
+    const img = $("tagPageImg");
+    img.src = data.image;
+    img.style.width = `${data.width}px`;
+    img.style.height = `${data.height}px`;
     const stage = $("tagStage");
     stage.style.width = `${data.width}px`;
     stage.style.height = `${data.height}px`;
+    if (tagState.autoFit) { tagState.autoFit = false; fitWidth(); } else { applyScale(); }
+
     $("tagPageLabel").textContent = `${data.page + 1} / ${data.page_count}`;
     $("tagPrev").disabled = data.page <= 0;
     $("tagNext").disabled = data.page >= data.page_count - 1;
     $("tagStatus").textContent = "";
 
     renderWordBoxes();
-    if (tagState.mode === "tag") {
+    if (tagState.mode === "original") {
       updateOcrNotice();
       tagState.loading = false;
       // Consent already given for this document -> OCR further scanned pages automatically
       if (!tagState.ocrDone && tagState.ocrAvailable && tagState.ocrConsent.has(tagState.name)) {
         await runOcrCurrentPage();
       }
+    } else {
+      $("ocrNotice").classList.add("hidden");
     }
   } finally {
     tagState.loading = false;
@@ -457,7 +489,7 @@ async function loadTagPage() {
 }
 
 function updateOcrNotice() {
-  const needsOcr = !tagState.ocrDone;
+  const needsOcr = tagState.mode === "original" && !tagState.ocrDone;
   $("ocrNotice").classList.toggle("hidden", !needsOcr);
   const btn = $("btnDetectText");
   btn.disabled = !tagState.ocrAvailable;
@@ -470,7 +502,7 @@ async function runOcrCurrentPage() {
   $("btnDetectText").disabled = true;
   try {
     await apiCall(api().ocr_source_page(tagState.name, tagState.page));
-    const data = await api().get_source_preview(tagState.name, tagState.page, tagState.zoom);
+    const data = await api().get_source_preview(tagState.name, tagState.page, SERVER_ZOOM);
     tagState.words = data.words;
     tagState.ocrDone = data.ocr_done;
     $("tagStatus").textContent = "";
@@ -502,7 +534,7 @@ function renderWordBoxes() {
     box.addEventListener("click", () => toggleTagWord(clean));
     stage.appendChild(box);
   }
-  if (tagState.mode === "tag") renderTagChips();
+  renderTagChips();
 }
 
 function toggleTagWord(word) {
@@ -552,6 +584,13 @@ function renderTagChips() {
   for (const kw of state.keywords.global) mkChip(kw, true);
   for (const kw of (state.keywords.perFile[tagState.name] || [])) {
     if (!state.keywords.global.includes(kw)) mkChip(kw, false);
+  }
+
+  if (!box.children.length) {
+    const none = document.createElement("span");
+    none.className = "hint";
+    none.textContent = "none yet — click words on the page or type one above";
+    box.appendChild(none);
   }
 }
 
@@ -702,13 +741,23 @@ function wire() {
     });
   });
 
-  // Document viewer (click-to-tag + output preview)
-  $("btnTagClose").addEventListener("click", () => $("tagModal").classList.add("hidden"));
-  $("tagPrev").addEventListener("click", () => { if (tagState.page > 0) { tagState.page--; loadTagPage(); } });
-  $("tagNext").addEventListener("click", () => { if (tagState.page < tagState.pageCount - 1) { tagState.page++; loadTagPage(); } });
-  $("tagZoomIn").addEventListener("click", () => { tagState.zoom = Math.min(3.0, tagState.zoom + 0.25); loadTagPage(); });
-  $("tagZoomOut").addEventListener("click", () => { tagState.zoom = Math.max(0.5, tagState.zoom - 0.25); loadTagPage(); });
+  // Persistent document viewer
+  $("btnModeOriginal").addEventListener("click", () => setViewerMode("original"));
+  $("btnModeResult").addEventListener("click", () => setViewerMode("result"));
+  $("tagPrev").addEventListener("click", () => { if (tagState.page > 0) { tagState.page--; loadViewerPage(); } });
+  $("tagNext").addEventListener("click", () => { if (tagState.page < tagState.pageCount - 1) { tagState.page++; loadViewerPage(); } });
+  $("tagZoomIn").addEventListener("click", () => { tagState.scale = Math.min(2.5, tagState.scale * 1.25); applyScale(); });
+  $("tagZoomOut").addEventListener("click", () => { tagState.scale = Math.max(0.15, tagState.scale * 0.8); applyScale(); });
+  $("tagZoomFit").addEventListener("click", fitWidth);
   $("btnDetectText").addEventListener("click", runOcrCurrentPage);
+
+  // Keyboard: arrow keys turn pages when not typing in a field
+  document.addEventListener("keydown", (e) => {
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+    if (!tagState.name) return;
+    if (e.key === "ArrowLeft" && !$("tagPrev").disabled) { tagState.page--; loadViewerPage(); }
+    if (e.key === "ArrowRight" && !$("tagNext").disabled) { tagState.page++; loadViewerPage(); }
+  });
 
   // Credentials banner
   $("btnMoveKey").addEventListener("click", () => {
@@ -746,7 +795,7 @@ function wire() {
   });
 
   // Close modals on backdrop click
-  for (const id of ["settingsModal", "summaryModal", "tagModal"]) {
+  for (const id of ["settingsModal", "summaryModal"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) $(id).classList.add("hidden");
     });

@@ -39,73 +39,127 @@
 </div>
 
 <main>
-  <!-- Source & destination -->
-  <section class="card" id="folderCard">
-    <div class="folder-row">
-      <button class="btn btn-primary" id="btnSelectFolder">📂 Select Data Folder</button>
-      <span class="path" id="sourcePath">No folder selected — or drop a folder here</span>
-    </div>
-    <div class="folder-row dest-row">
-      <span class="dest-label">Save results to:</span>
-      <span class="path path-accent" id="outputPath">(select a data folder first)</span>
-      <span class="dest-actions">
-        <button class="btn btn-small" id="btnChangeOutput">Change…</button>
-        <button class="btn btn-small" id="btnResetOutput" title="Back to <source>/processed">Reset</button>
-        <button class="btn btn-small" id="btnOpenOutput">Open</button>
+  <div class="left-col">
+    <!-- Source & destination -->
+    <section class="card" id="folderCard">
+      <div class="folder-row">
+        <button class="btn btn-primary" id="btnSelectFolder">📂 Select Data Folder</button>
+        <span class="path" id="sourcePath">No folder selected — or drop a folder here</span>
+      </div>
+      <div class="folder-row dest-row">
+        <span class="dest-label">Save results to:</span>
+        <span class="path path-accent" id="outputPath">(select a data folder first)</span>
+        <span class="dest-actions">
+          <button class="btn btn-small" id="btnChangeOutput">Change…</button>
+          <button class="btn btn-small" id="btnResetOutput" title="Back to <source>/processed">Reset</button>
+          <button class="btn btn-small" id="btnOpenOutput">Open</button>
+        </span>
+      </div>
+    </section>
+
+    <!-- Keywords -->
+    <section class="card">
+      <div class="card-header">
+        <h2 id="kwTitle">Redaction keywords</h2>
+        <span class="hint" id="kwHint"></span>
+      </div>
+      <div class="kw-input-row">
+        <input type="text" id="kwInput" placeholder="Type a name or ID and press Enter…" autocomplete="off">
+        <button class="btn" id="btnAddKw">Add</button>
+        <label class="tag-target" id="tagTargetWrap">for
+          <select id="tagTarget">
+            <option value="global">all files</option>
+            <option value="file">this file only</option>
+          </select>
+        </label>
+      </div>
+      <div class="chips" id="chipContainer"></div>
+    </section>
+
+    <!-- Controls + progress -->
+    <section class="card">
+      <div class="controls-row">
+        <button class="btn btn-start" id="btnStart" disabled>▶ Start Batch Processing</button>
+        <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
+        <div class="progress-wrap">
+          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+          <span class="progress-text" id="progressText">Idle</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Files table -->
+    <section class="card grow">
+      <div class="card-header">
+        <h2>Documents</h2>
+        <span class="counts" id="fileCounts"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="filesTable">
+          <thead>
+            <tr><th>Document</th><th class="num">Pages</th><th class="num">Size</th><th>Status</th></tr>
+          </thead>
+          <tbody id="filesBody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState">Select a data folder to see its documents here.</div>
+      </div>
+    </section>
+
+    <!-- Log -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Execution log</h2>
+        <span class="counts" id="envInfo"></span>
+      </div>
+      <pre class="log" id="logPane"></pre>
+    </section>
+  </div>
+
+  <!-- Persistent document viewer -->
+  <aside class="card viewer-pane" id="viewerPane">
+    <div class="card-header">
+      <h2 id="viewerTitle">Document viewer</h2>
+      <span class="mode-switch">
+        <button class="btn btn-small mode-btn" id="btnModeOriginal" title="Show the original document (click words to tag)">Original</button>
+        <button class="btn btn-small mode-btn" id="btnModeResult" title="Show the anonymized result">Result</button>
       </span>
     </div>
-  </section>
 
-  <!-- Keywords -->
-  <section class="card">
-    <div class="card-header">
-      <h2 id="kwTitle">Global redaction keywords</h2>
-      <span class="hint" id="kwHint">Names/IDs typed here are expanded into hundreds of spelling variants and burned out of every document. Select a file below to add file-specific keywords.</span>
+    <div class="tag-toolbar">
+      <button class="btn btn-small" id="tagPrev">‹</button>
+      <span class="tag-page-label" id="tagPageLabel">– / –</span>
+      <button class="btn btn-small" id="tagNext">›</button>
+      <span class="toolbar-sep"></span>
+      <button class="btn btn-small" id="tagZoomOut" title="Zoom out">−</button>
+      <button class="btn btn-small" id="tagZoomIn" title="Zoom in">+</button>
+      <button class="btn btn-small" id="tagZoomFit" title="Fit width">Fit</button>
+      <span class="hint" id="tagStatus"></span>
     </div>
-    <div class="kw-input-row">
-      <input type="text" id="kwInput" placeholder="Type a name or ID and press Enter…" autocomplete="off">
-      <button class="btn" id="btnAddKw">Add</button>
-    </div>
-    <div class="chips" id="chipContainer"></div>
-  </section>
 
-  <!-- Controls + progress -->
-  <section class="card">
-    <div class="controls-row">
-      <button class="btn btn-start" id="btnStart" disabled>▶ Start Batch Processing</button>
-      <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
-      <div class="progress-wrap">
-        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-        <span class="progress-text" id="progressText">Idle</span>
+    <div class="ocr-notice hidden" id="ocrNotice">
+      <span>Scanned page — no selectable text yet. Detect it to enable click-to-tag
+        <span class="hint">(Cloud OCR, region-pinned, ~0.1¢/page, kept in memory only)</span></span>
+      <button class="btn btn-small btn-primary" id="btnDetectText">Detect text</button>
+    </div>
+
+    <div class="tag-viewport" id="tagViewport">
+      <div class="viewer-empty" id="viewerEmpty">
+        <p>Click a document on the left to preview it here.</p>
+        <p class="hint">Originals: click any word to tag it for erasure — all occurrences highlight.<br>
+           Processed files open their anonymized result. ←/→ keys turn pages.</p>
+      </div>
+      <div class="tag-sizer hidden" id="tagSizer">
+        <div class="tag-stage" id="tagStage">
+          <img id="tagPageImg" alt="Document page">
+        </div>
       </div>
     </div>
-  </section>
 
-  <!-- Files table -->
-  <section class="card grow">
-    <div class="card-header">
-      <h2>Documents</h2>
-      <span class="counts" id="fileCounts"></span>
+    <div class="viewer-tags">
+      <span class="hint" id="tagChipsLabel">Tags affecting this document:</span>
+      <div class="chips" id="tagChips"></div>
     </div>
-    <div class="table-wrap">
-      <table id="filesTable">
-        <thead>
-          <tr><th>Document</th><th class="num">Pages</th><th class="num">Size</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody id="filesBody"></tbody>
-      </table>
-      <div class="empty-state" id="emptyState">Select a data folder to see its documents here.</div>
-    </div>
-  </section>
-
-  <!-- Log -->
-  <section class="card">
-    <div class="card-header">
-      <h2>Execution log</h2>
-      <span class="counts" id="envInfo"></span>
-    </div>
-    <pre class="log" id="logPane"></pre>
-  </section>
+  </aside>
 </main>
 
 <!-- ============ Settings modal ============ -->
@@ -179,48 +233,6 @@
   </div>
 </div>
 
-<!-- ============ Document viewer: click-to-tag (originals) + output preview ============ -->
-<div class="modal-backdrop hidden" id="tagModal">
-  <div class="modal modal-xl">
-    <h2 id="tagTitle">Tag for erasure</h2>
-    <p class="hint" id="tagHint">Click any word to tag it for erasure everywhere — name combinations and OCR misspellings are covered automatically. Click a highlighted word to un-tag it.</p>
-
-    <div class="tag-toolbar">
-      <button class="btn btn-small" id="tagPrev">‹ Prev</button>
-      <span class="tag-page-label" id="tagPageLabel">1 / 1</span>
-      <button class="btn btn-small" id="tagNext">Next ›</button>
-      <span class="toolbar-sep"></span>
-      <button class="btn btn-small" id="tagZoomOut" title="Zoom out">−</button>
-      <button class="btn btn-small" id="tagZoomIn" title="Zoom in">+</button>
-      <span class="toolbar-sep"></span>
-      <label class="tag-target" id="tagTargetWrap">Tag applies to:
-        <select id="tagTarget">
-          <option value="global">All files (erase everywhere)</option>
-          <option value="file">This file only</option>
-        </select>
-      </label>
-      <span class="hint" id="tagStatus"></span>
-    </div>
-
-    <div class="ocr-notice hidden" id="ocrNotice">
-      <span>Scanned page — no selectable text yet. Detect it to enable click-to-tag
-        <span class="hint">(Cloud OCR, region-pinned, ~0.1¢/page, kept in memory only)</span></span>
-      <button class="btn btn-small btn-primary" id="btnDetectText">Detect text</button>
-    </div>
-
-    <div class="tag-viewport">
-      <div class="tag-stage" id="tagStage">
-        <img id="tagPageImg" alt="Document page">
-      </div>
-    </div>
-
-    <div class="chips" id="tagChips"></div>
-
-    <div class="modal-actions">
-      <button class="btn" id="btnTagClose">Close</button>
-    </div>
-  </div>
-</div>
 
 <div class="toast hidden" id="toast"></div>
 

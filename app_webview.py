@@ -151,9 +151,9 @@ def run_webview():
         title=f"Clinical Document Processor v{APP_VERSION} - Google DLP",
         url=os.path.join(PROJECT_DIR, "web_ui", "index.html"),
         js_api=api,
-        width=1080,
-        height=800,
-        min_size=(860, 640),
+        width=1320,
+        height=840,
+        min_size=(1024, 660),
     )
     api._window = window
 

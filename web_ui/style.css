@@ -90,14 +90,31 @@ body {
 .banner-warn { background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); }
 .banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
-/* ---------- Layout ---------- */
+/* ---------- Layout: left column + persistent viewer ---------- */
 main {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 14px 18px;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+}
+
+.left-col {
+  flex: 0 0 44%;
+  min-width: 380px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-right: 2px;
+}
+
+.viewer-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .card {
@@ -326,14 +343,43 @@ fieldset input[type="number"], fieldset select {
 }
 
 .tag-viewport {
-  max-height: 56vh;
+  flex: 1;
+  position: relative;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
+  min-height: 200px;
 }
-.tag-stage { position: relative; margin: 0 auto; }
+/* The sizer reserves the scaled footprint; the stage renders at native
+   resolution and is CSS-scaled, so word hit-boxes stay perfectly aligned. */
+.tag-sizer { position: relative; }
+.tag-stage { position: absolute; top: 0; left: 0; transform-origin: top left; }
 .tag-stage img { display: block; user-select: none; -webkit-user-drag: none; }
+
+.viewer-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 20px;
+}
+
+.mode-switch { display: flex; gap: 4px; }
+.mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.viewer-tags { margin-top: 8px; }
+.viewer-tags .chips { margin-top: 4px; min-height: 4px; }
 
 .wordbox {
   position: absolute;

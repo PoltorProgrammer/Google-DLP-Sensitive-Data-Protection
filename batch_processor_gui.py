@@ -17,7 +17,7 @@ import fitz  # PyMuPDF
 # Note: Integration with Google Cloud DLP (Data Loss Prevention)
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
