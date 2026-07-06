@@ -63,7 +63,7 @@ echo.
 :: Activate env just in case (though setup_env does it for its session, we need it here)
 call .venv\Scripts\activate.bat
 
-python batch_processor_gui.py
+python app_webview.py
 
 echo.
 echo Application Closed.

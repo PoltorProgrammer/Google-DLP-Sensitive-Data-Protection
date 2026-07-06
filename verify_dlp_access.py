@@ -1,22 +1,39 @@
 import os
+import json
 from google.cloud import dlp_v2
 import google.auth
 
-# Force credential usage
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'credentials.json'
+# Resolve the key path from config.json (the app may have moved it to a secure
+# per-user folder); fall back to a local credentials.json.
+def _resolve_credentials():
+    key_file = 'credentials.json'
+    location = 'europe-west6'
+    try:
+        with open('config.json', 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        gc = cfg.get('google_cloud', {})
+        key_file = gc.get('service_account_key_file', key_file)
+        location = gc.get('location', location)
+    except Exception:
+        pass
+    return os.path.abspath(key_file), location
+
+KEY_PATH, DLP_LOCATION = _resolve_credentials()
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = KEY_PATH
 
 def verify_access():
     try:
-        print("1. Loading Credentials...")
+        print(f"1. Loading Credentials from: {KEY_PATH}")
         creds, project = google.auth.default()
         print(f"   Success. Authenticated as project: {project}")
         if hasattr(creds, "service_account_email"):
             print(f"   Service Account: {creds.service_account_email}")
 
-        print("\n2. Testing DLP API Access (ListInfoTypes)...")
+        print(f"\n2. Testing DLP API Access (region: {DLP_LOCATION})...")
         client = dlp_v2.DlpServiceClient()
-        parent = f"projects/{project}/locations/europe-west6"
-        
+        # Same regional parent the app uses, so this test proves data residency works.
+        parent = f"projects/{project}/locations/{DLP_LOCATION}"
+
         print("\n3. Testing Content Inspection (Hello World)...")
         # Test a simple content inspection
         item = {"value": "My email is test@example.com"}
@@ -38,12 +55,12 @@ def verify_access():
         
         response = client.inspect_content(
             request={
-                "parent": f"projects/{project}",
+                "parent": parent,
                 "inspect_config": inspect_config,
                 "item": item,
             }
         )
-        print("   Success! InspectContent worked.")
+        print(f"   Success! InspectContent worked in {DLP_LOCATION}.")
 
         print("\n4. Testing RedactImage (Simple ByteItem)...")
         # Create a tiny 1x1 GIF to test image redaction
@@ -58,14 +75,13 @@ def verify_access():
 
         response_redact = client.redact_image(
             request={
-                "parent": f"projects/{project}/locations/global", # REDACT_IMAGE supports Global best
-
+                "parent": parent,
                 "inspect_config": inspect_config,
                 "image_redaction_configs": redact_configs,
                 "byte_item": byte_item
             }
         )
-        print(f"   Success! RedactImage worked. Result size: {len(response_redact.redacted_image)}")
+        print(f"   Success! RedactImage worked in {DLP_LOCATION}. Result size: {len(response_redact.redacted_image)}")
 
     except Exception as e:
         error_msg = f"[ERROR] Test Failed: {e}"

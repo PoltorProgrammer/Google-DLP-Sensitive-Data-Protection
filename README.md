@@ -44,24 +44,33 @@ This section explains how to set up the **Google Cloud DLP (Data Loss Prevention
 2.  Create a **New Project**.
 3.  Copy the **Project ID**.
 
-### Step 2: Enable the DLP API
-1.  In the search bar, type **"Sensitive Data Protection (DLP API)"** (or just "DLP") and select the result with the document icon.
-    *   **Direct Link**: [Enable DLP API](https://console.cloud.google.com/apis/library/dlp.googleapis.com)
-2.  Click **Enable**.
+### Step 2: Enable the required APIs
+The app uses three Google Cloud services. Enable each one for your project:
+1.  **Sensitive Data Protection (DLP API)** — [Enable DLP API](https://console.cloud.google.com/apis/library/dlp.googleapis.com) (redaction)
+2.  **Cloud Vision API** — [Enable Vision API](https://console.cloud.google.com/apis/library/vision.googleapis.com) (OCR overlay for selectable text)
+3.  **Cloud Translation API** — [Enable Translation API](https://console.cloud.google.com/apis/library/translate.googleapis.com) (only needed if you use the optional translation feature)
 
 ### Step 3: Get Credentials (Service Account)
 1.  Open the **Navigation Menu** (the three horizontal lines **☰** in the top-left corner).
 2.  Hover over **IAM & Admin** and select **Service Accounts**.
     *   **Direct Link**: [IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
 3.  Create a Service Account (e.g., `dlp-admin`).
-3.  **Permissions** (Grant this service account access to project):
-    *   Role: **DLP User** (Allows scanning and content de-identification).
-4.  **Create Key**:
+4.  **Permissions** (Grant this service account access to project — least privilege):
+    *   Role: **DLP User** (`roles/dlp.user`) — scanning and content de-identification.
+    *   Role: **Cloud Translation API User** (`roles/cloudtranslate.user`) — only if translation is used.
+    *   Vision OCR needs no extra role, only the enabled API.
+5.  **Create Key**:
     *   Click on the newly created Service Account.
     *   Go to the **KEYS** tab.
     *   Click **ADD KEY** > **Create new key**.
     *   Select **JSON** and click **Create**.
     *   Rename the downloaded file to `credentials.json` and move it into this project folder.
+
+> 🔒 **Key hygiene**: on first launch the app will offer to move the key to a protected
+> per-user folder (`%APPDATA%\MediXtract` on Windows, `~/.config/medixtract` elsewhere)
+> and lock down its file permissions. Accept this — it keeps the key out of the app folder
+> so it can never be accidentally zipped, shared or synced together with the app.
+> Never commit the key to git (it is `.gitignore`d) and never email it.
 
 ### Step 4: Update config.json
 Open `config.json` and fill in your details:
@@ -78,16 +87,43 @@ Open `config.json` and fill in your details:
     }
 }
 ```
-*   *Note: `location` forces processing to occur in that region (e.g., `europe-west6` for Zurich, `europe-west3` for Frankfurt) for compliance.*
-*   *Set `"simulation_mode": false` to go live.*
+*   *Note: `location` forces DLP processing to occur in that region (e.g., `europe-west6` for Zurich, `europe-west3` for Frankfurt) for compliance. Every DLP request carries this region, and the Vision OCR is pinned to the matching EU/US endpoint.*
+*   *Exception: the optional **translation** feature is processed by Google in `us-central1` (US) — document translation is not available in EU regions. Only already-redacted copies are ever sent there, and the app shows a warning whenever translation is enabled.*
+
+All other options (output folder, overwrite policy, outputs to generate, redaction passes, translation, verification scan, audit trail) can be changed from the **⚙ Settings** dialog inside the app — no manual JSON editing needed.
 
 ---
 
 ## How it Works
 
-1.  **Direct Processing**: The app reads your local PDF files and streams them securely to the **Google Cloud DLP** API.
-2.  **Transient Redaction**: The API processes the file in-memory (RAM) to redact identifying information (Names, Phones, Emails, Credit Cards), while keeping Dates and Locations visible.
-3.  **Result**: The redacted file is returned immediately and saved to your local `processed/` folder. **No data is stored in the cloud.**
+1.  **Direct Processing**: The app reads your local PDF files and streams them securely to the **Google Cloud DLP** API in your configured region.
+2.  **Transient Redaction**: The API processes the file in-memory (RAM) to redact identifying information (Names, Phones, Emails, Credit Cards, national IDs), while keeping Dates and Locations visible.
+3.  **Trustworthy Saving**: Results are validated and written atomically — a file is only marked **Completed** if its output exists and opens cleanly, so a crash can never leave a half-written file that looks finished.
+4.  **Verification Scan** (optional, on by default): after saving, the app re-inspects the finished output's text layer and flags any document with possible residual sensitive text for manual review.
+5.  **Audit Trail** (optional, on by default): one JSON line per document (`audit_log.jsonl` in the output folder) records timestamps, SHA-256 hashes of input/outputs, the region used, redaction settings and verification results — never document content or keyword values.
+6.  **Result**: The redacted file is saved to your chosen output folder (default: `processed/` next to the source). **No data is stored in the cloud.**
+
+### Security posture at a glance
+The strip at the top of the app window always shows the live configuration, e.g.:
+
+`🔒 Region: europe-west6 | Redaction: ON x1 | Translation: OFF | Verify: ON | Audit: ON`
+
+If anything reduces your protection (redaction off, translation to the US enabled, verification off), the strip turns orange/red with a ⚠ so it can never change silently.
+
+---
+
+## The Interface
+
+The app uses a modern HTML interface rendered in a **native window** (via `pywebview`):
+
+*   **No server, no open ports, no browser** — the UI talks to Python directly in-process. Nothing is exposed on the network.
+*   **Fully offline UI** — every style and script is bundled locally and a strict Content-Security-Policy blocks any remote resource, so the interface itself can never contact the internet. Only the Python backend talks to Google's APIs.
+*   **Built-in review workflow** — documents flagged by the verification scan get a **Preview** button that renders the anonymized output right in the app (locally, via PyMuPDF) so you can check flagged pages without hunting through folders.
+*   Drag & drop a folder onto the app, live per-file status badges, progress bar with time estimation, and a settings panel for everything.
+
+If `pywebview` is not installed, the launcher automatically falls back to the classic Tkinter interface (`batch_processor_gui.py`).
+
+**Architecture note**: all processing logic lives in `batch_core.py` (engine) and `dlp_processor.py` (Google Cloud calls). The interfaces (`app_webview.py` + `web_ui/`, or the Tkinter fallback) are thin layers on top — the security guarantees are identical in both.
 
 ---
 

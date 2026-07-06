@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- Strict CSP: no remote origins can ever be loaded. data:/blob: allowed for local previews only. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; object-src 'none';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clinical Document Processor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-icon">🩺</span>
+    <div>
+      <h1>Clinical Document Processor</h1>
+      <span class="subtitle">Google DLP anonymization <span id="appVersion"></span></span>
+    </div>
+  </div>
+  <div class="posture" id="postureStrip" title="Live security posture"></div>
+  <button class="btn btn-ghost" id="btnSettings" title="Settings">⚙ Settings</button>
+</header>
+
+<div class="banner banner-warn hidden" id="credBanner">
+  <span>🔑 Your Google service account key is stored <b>inside the app folder</b>. If this folder is zipped, shared or synced, the key travels with it.</span>
+  <span class="banner-actions">
+    <button class="btn btn-small btn-primary" id="btnMoveKey">Move key to secure location</button>
+    <button class="btn btn-small btn-ghost" id="btnDismissCred">Not now</button>
+  </span>
+</div>
+
+<main>
+  <!-- Source & destination -->
+  <section class="card" id="folderCard">
+    <div class="folder-row">
+      <button class="btn btn-primary" id="btnSelectFolder">📂 Select Data Folder</button>
+      <span class="path" id="sourcePath">No folder selected — or drop a folder here</span>
+    </div>
+    <div class="folder-row dest-row">
+      <span class="dest-label">Save results to:</span>
+      <span class="path path-accent" id="outputPath">(select a data folder first)</span>
+      <span class="dest-actions">
+        <button class="btn btn-small" id="btnChangeOutput">Change…</button>
+        <button class="btn btn-small" id="btnResetOutput" title="Back to <source>/processed">Reset</button>
+        <button class="btn btn-small" id="btnOpenOutput">Open</button>
+      </span>
+    </div>
+  </section>
+
+  <!-- Keywords -->
+  <section class="card">
+    <div class="card-header">
+      <h2 id="kwTitle">Global redaction keywords</h2>
+      <span class="hint" id="kwHint">Names/IDs typed here are expanded into hundreds of spelling variants and burned out of every document. Select a file below to add file-specific keywords.</span>
+    </div>
+    <div class="kw-input-row">
+      <input type="text" id="kwInput" placeholder="Type a name or ID and press Enter…" autocomplete="off">
+      <button class="btn" id="btnAddKw">Add</button>
+    </div>
+    <div class="chips" id="chipContainer"></div>
+  </section>
+
+  <!-- Controls + progress -->
+  <section class="card">
+    <div class="controls-row">
+      <button class="btn btn-start" id="btnStart" disabled>▶ Start Batch Processing</button>
+      <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <span class="progress-text" id="progressText">Idle</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Files table -->
+  <section class="card grow">
+    <div class="card-header">
+      <h2>Documents</h2>
+      <span class="counts" id="fileCounts"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="filesTable">
+        <thead>
+          <tr><th>Document</th><th class="num">Pages</th><th class="num">Size</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody id="filesBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState">Select a data folder to see its documents here.</div>
+    </div>
+  </section>
+
+  <!-- Log -->
+  <section class="card">
+    <div class="card-header">
+      <h2>Execution log</h2>
+      <span class="counts" id="envInfo"></span>
+    </div>
+    <pre class="log" id="logPane"></pre>
+  </section>
+</main>
+
+<!-- ============ Settings modal ============ -->
+<div class="modal-backdrop hidden" id="settingsModal">
+  <div class="modal">
+    <h2>⚙ Settings</h2>
+
+    <fieldset>
+      <legend>If a result already exists</legend>
+      <label><input type="radio" name="policy" value="skip"> Skip the file (don't re-process)</label>
+      <label><input type="radio" name="policy" value="version"> Keep both (save with a version number)</label>
+      <label><input type="radio" name="policy" value="overwrite"> Overwrite the old result</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Outputs to generate</legend>
+      <label><input type="checkbox" id="sSelectable"> Selectable copy (searchable text via OCR overlay)</label>
+      <label><input type="checkbox" id="sFlattened"> Flattened copy (image-only, no text layer)</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Redaction</legend>
+      <label><input type="checkbox" id="sRedaction"> Redact sensitive data (DLP)</label>
+      <label class="inline">Redaction passes:
+        <input type="number" id="sIterations" min="1" max="10" step="1">
+        <span class="hint">more passes = stricter, slower</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Translation</legend>
+      <label><input type="checkbox" id="sTranslate"> Translate redacted documents</label>
+      <p class="warn-note" id="transNote"></p>
+      <label class="inline">Target language:
+        <select id="sLang">
+          <option>en</option><option>de</option><option>fr</option><option>it</option>
+          <option>es</option><option>ca</option><option>pt</option><option>nl</option><option>pl</option>
+        </select>
+        &nbsp; Re-redaction passes:
+        <input type="number" id="sTransIter" min="0" max="10" step="1">
+      </label>
+      <label><input type="checkbox" id="sMergeFull"> Also merge chunked translations into one full document</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Safety</legend>
+      <label><input type="checkbox" id="sVerify"> Verification scan (re-check finished outputs for residual sensitive text)</label>
+      <label><input type="checkbox" id="sAudit"> Audit trail (audit_log.jsonl with file hashes — never content or keywords)</label>
+    </fieldset>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="btnSaveSettings">Save</button>
+      <button class="btn" id="btnCancelSettings">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Summary modal ============ -->
+<div class="modal-backdrop hidden" id="summaryModal">
+  <div class="modal">
+    <h2>Batch Complete</h2>
+    <p class="summary-headline" id="summaryHeadline"></p>
+    <p class="summary-sub" id="summaryTime"></p>
+    <p class="summary-sub path-accent" id="summaryFolder"></p>
+    <div id="summaryLists"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="btnSummaryOpen">Open Output Folder</button>
+      <button class="btn hidden" id="btnSummaryRetry">Retry Failed</button>
+      <button class="btn" id="btnSummaryClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Preview modal ============ -->
+<div class="modal-backdrop hidden" id="previewModal">
+  <div class="modal modal-wide">
+    <h2 id="previewTitle">Preview</h2>
+    <p class="hint" id="previewInfo"></p>
+    <div class="preview-pages" id="previewPages"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnPreviewClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

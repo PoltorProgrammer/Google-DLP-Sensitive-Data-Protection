@@ -1,0 +1,178 @@
+"""
+Clinical Document Processor - modern HTML/CSS/JS interface.
+
+Runs the local web UI (web_ui/) inside a native window via pywebview:
+no HTTP server, no open ports, no browser - the UI talks to Python
+directly through the js_api bridge. All assets are bundled locally;
+the page can never load anything from the internet.
+
+If pywebview is not installed, falls back to the classic Tkinter UI.
+"""
+import os
+import sys
+import threading
+
+# Run relative to this file no matter how we were launched (shortcut, terminal...)
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(PROJECT_DIR)
+sys.path.insert(0, PROJECT_DIR)
+
+from batch_core import BatchEngine, APP_VERSION
+
+
+class Api:
+    """Methods callable from JavaScript as window.pywebview.api.<name>(...).
+    Only JSON-serializable data crosses the bridge - never document bytes
+    (except local previews the user explicitly asks for)."""
+
+    def __init__(self, engine):
+        self._engine = engine  # underscore: not exposed via the JS bridge
+        self._window = None  # underscore: pywebview must NOT expose this via the JS bridge
+
+    # --- event stream -------------------------------------------------
+    def poll_events(self):
+        return self._engine.poll_events()
+
+    # --- state --------------------------------------------------------
+    def get_state(self):
+        return {
+            "app_version": APP_VERSION,
+            "source_folder": self._engine.source_folder,
+            "output_folder": self._engine.get_output_folder(),
+            "posture": self._engine.posture(),
+            "settings": self._engine.get_settings(),
+            "is_processing": self._engine.is_processing,
+            "env": {"gpu": self._engine.gpu_name, "ping": self._engine.current_ping},
+        }
+
+    # --- folders --------------------------------------------------------
+    def choose_source_folder(self):
+        import webview
+        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if result:
+            folder = result[0] if isinstance(result, (list, tuple)) else result
+            self._engine.set_source_folder(folder)
+            return {"source_folder": folder, "output_folder": self._engine.get_output_folder()}
+        return None
+
+    def set_source_folder(self, folder):
+        """Used by drag & drop when the browser exposes the real path."""
+        if folder and os.path.isdir(folder):
+            self._engine.set_source_folder(folder)
+            return {"source_folder": folder, "output_folder": self._engine.get_output_folder()}
+        raise ValueError("Not a folder.")
+
+    def choose_output_folder(self):
+        import webview
+        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if result:
+            folder = result[0] if isinstance(result, (list, tuple)) else result
+            src = self._engine.source_folder
+            if src and os.path.abspath(folder) == os.path.abspath(src):
+                raise ValueError("Saving directly into the source folder mixes originals and anonymized copies. Pick a subfolder or a separate folder.")
+            self._engine.config["app_settings"]["output_folder"] = folder
+            self._engine.save_config()
+            self._engine.log(f"Output folder set to: {folder}")
+            if src:
+                self._engine.scan_folder_async()
+            return {"output_folder": folder}
+        return None
+
+    def reset_output_folder(self):
+        self._engine.config["app_settings"]["output_folder"] = ""
+        self._engine.save_config()
+        if self._engine.source_folder:
+            self._engine.scan_folder_async()
+        return {"output_folder": self._engine.get_output_folder()}
+
+    def open_output_folder(self):
+        folder = self._engine.get_output_folder()
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("No output folder exists yet - process a document first.")
+        import subprocess
+        if sys.platform == "win32":
+            os.startfile(folder)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder])
+        else:
+            subprocess.Popen(["xdg-open", folder])
+        return True
+
+    # --- settings -------------------------------------------------------
+    def get_settings(self):
+        return self._engine.get_settings()
+
+    def save_settings(self, settings):
+        return self._engine.save_settings(settings)
+
+    # --- batch ------------------------------------------------------
+    def start_batch(self, keywords):
+        self._engine.start_batch(keywords)
+        return True
+
+    def stop_batch(self):
+        self._engine.stop()
+        return True
+
+    def retry_failed(self):
+        return self._engine.retry_failed()
+
+    # --- credentials hygiene ------------------------------------------
+    def credentials_status(self):
+        return self._engine.credentials_status()
+
+    def move_credentials(self):
+        return self._engine.move_credentials_to_secure_location()
+
+    # --- preview --------------------------------------------------------
+    def get_preview(self, filename, max_pages=6):
+        return self._engine.get_preview(filename, max_pages=max_pages)
+
+
+def run_webview():
+    import webview
+
+    engine = BatchEngine()
+    api = Api(engine)
+
+    window = webview.create_window(
+        title=f"Clinical Document Processor v{APP_VERSION} - Google DLP",
+        url=os.path.join(PROJECT_DIR, "web_ui", "index.html"),
+        js_api=api,
+        width=1080,
+        height=800,
+        min_size=(860, 640),
+    )
+    api._window = window
+
+    def on_closing():
+        if engine.is_processing:
+            engine.should_stop = True
+        return True
+
+    window.events.closing += on_closing
+    webview.start(debug=False)
+
+
+def run_tkinter_fallback():
+    print("pywebview is not installed - starting the classic interface instead.")
+    print("(Run: pip install pywebview  to enable the modern UI)")
+    import tkinter as tk
+    from batch_processor_gui import LocalFileProcessorApp
+    root = tk.Tk()
+    app = LocalFileProcessorApp(root)
+    app.create_widgets()
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    try:
+        import webview  # noqa: F401
+        has_webview = True
+    except ImportError:
+        has_webview = False
+
+    if has_webview:
+        run_webview()
+    else:
+        run_tkinter_fallback()

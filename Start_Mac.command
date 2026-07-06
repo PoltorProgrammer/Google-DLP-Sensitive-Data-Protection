@@ -61,7 +61,7 @@ echo "[4/4] Everything looks good. Launching Application..."
 echo ""
 
 source .venv/bin/activate
-python batch_processor_gui.py
+python app_webview.py
 
 echo ""
 echo "Application Closed."

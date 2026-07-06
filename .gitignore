@@ -13,3 +13,9 @@ error_log.txt
 debug_temp.bat
 repro.bat
 *.ps1
+
+performance_history.json
+audit_log.jsonl
+*.part
+*.tmp
+.claude/
