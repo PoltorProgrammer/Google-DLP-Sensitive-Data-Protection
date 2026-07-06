@@ -17,7 +17,7 @@ import fitz  # PyMuPDF
 # Note: Integration with Google Cloud DLP (Data Loss Prevention)
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.2.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -757,6 +757,7 @@ class LocalFileProcessorApp:
             self.save_config()
             self.refresh_output_label()
             self.log_message(f"Output folder set to: {folder}")
+            self.warn_if_cloud_synced()
             if self.source_folder:
                 self.load_files()
 
@@ -813,15 +814,18 @@ class LocalFileProcessorApp:
             candidate = f"{base} ({n}){ext}"
         return candidate
 
-    def save_bytes_atomic(self, path, data):
+    def save_bytes_atomic(self, path, data, expected_pages=None):
         """Validate -> write temp -> fsync -> atomic rename. Never leaves a half-written file
-        under the final name, so 'Completed' can be trusted."""
+        under the final name, so 'Completed' can be trusted. If expected_pages is given,
+        the output must have exactly that many pages."""
         if not data:
             raise ValueError("refusing to save empty output")
         if path.lower().endswith(".pdf"):
             with fitz.open("pdf", data) as check_doc:  # raises if corrupt
                 if len(check_doc) == 0:
                     raise ValueError("output PDF has 0 pages")
+                if expected_pages is not None and len(check_doc) != expected_pages:
+                    raise ValueError(f"output has {len(check_doc)} pages, expected {expected_pages}")
 
         tmp_path = path + ".part"
         with open(tmp_path, 'wb') as f:
@@ -830,7 +834,7 @@ class LocalFileProcessorApp:
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
 
-    def save_output(self, path, data):
+    def save_output(self, path, data, expected_pages=None):
         """Save honoring the overwrite policy. Returns the final path, or None on failure."""
         policy = self.config.get("app_settings", {}).get("overwrite_policy", "skip")
         final_path = path
@@ -841,7 +845,7 @@ class LocalFileProcessorApp:
             if policy == "version":
                 final_path = self.unique_path(path)
         try:
-            self.save_bytes_atomic(final_path, data)
+            self.save_bytes_atomic(final_path, data, expected_pages=expected_pages)
             return final_path
         except Exception as e:
             self.log_message(f"SAVE FAILED for {os.path.basename(final_path)}: {e}")
@@ -876,12 +880,26 @@ class LocalFileProcessorApp:
     # Folder selection & scan
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def detect_cloud_sync(path):
+        """Reuse the engine's single implementation - no drift between UIs."""
+        from batch_core import BatchEngine
+        return BatchEngine.detect_cloud_sync(path)
+
+    def warn_if_cloud_synced(self):
+        for where, p in (("source folder", self.source_folder), ("output folder", self.get_output_folder())):
+            service = self.detect_cloud_sync(p)
+            if service:
+                self.log_message(f"⚠ The {where} appears to be inside a {service}-synced location - "
+                                 "files there are copied to the cloud outside this app's control.")
+
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
             self.source_folder = folder
             self.lbl_folder.config(text=folder)
             self.refresh_output_label()
+            self.warn_if_cloud_synced()
             self.load_files()
             self.btn_start.config(state=tk.NORMAL, bg="#90ee90")
 
@@ -1062,11 +1080,13 @@ class LocalFileProcessorApp:
 
                     if results:
                         doc_stats = results.get("stats", {})
+                        # PDF outputs must have exactly as many pages as the input
+                        expected_pages = doc_stats.get("pages") if filename.lower().endswith(".pdf") else None
 
                         # 1. Save Selectable (Standard Anonymized)
                         if results.get("selectable"):
                             target = os.path.join(output_folder, f"anonymized_{filename}")
-                            saved = self.save_output(target, results["selectable"])
+                            saved = self.save_output(target, results["selectable"], expected_pages=expected_pages)
                             if saved:
                                 saved_paths.append(("selectable", saved))
                                 success = True
@@ -1074,7 +1094,7 @@ class LocalFileProcessorApp:
                         # 2. Save Non-Selectable (Flattened/Undigitalized)
                         if results.get("non_selectable"):
                             target = os.path.join(output_folder, f"anonymized_flattened_{filename}")
-                            saved = self.save_output(target, results["non_selectable"])
+                            saved = self.save_output(target, results["non_selectable"], expected_pages=expected_pages)
                             if saved:
                                 saved_paths.append(("non_selectable", saved))
                                 success = True

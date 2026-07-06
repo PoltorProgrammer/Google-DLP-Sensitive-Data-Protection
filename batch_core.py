@@ -11,6 +11,7 @@ Frontends (web UI via app_webview.py) consume it through:
       log, scan_item, scan_done, file_status, progress, env, summary, error
 """
 import os
+import re
 import sys
 import time
 import json
@@ -26,7 +27,7 @@ import fitz  # PyMuPDF
 
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -494,14 +495,18 @@ class BatchEngine:
             candidate = f"{base} ({n}){ext}"
         return candidate
 
-    def save_bytes_atomic(self, path, data):
-        """Validate -> write temp -> fsync -> atomic rename."""
+    def save_bytes_atomic(self, path, data, expected_pages=None):
+        """Validate -> write temp -> fsync -> atomic rename.
+        If expected_pages is given, the output must have exactly that many pages -
+        a shorter PDF means content was lost somewhere and must never look 'done'."""
         if not data:
             raise ValueError("refusing to save empty output")
         if path.lower().endswith(".pdf"):
             with fitz.open("pdf", data) as check_doc:
                 if len(check_doc) == 0:
                     raise ValueError("output PDF has 0 pages")
+                if expected_pages is not None and len(check_doc) != expected_pages:
+                    raise ValueError(f"output has {len(check_doc)} pages, expected {expected_pages}")
 
         tmp_path = path + ".part"
         with open(tmp_path, 'wb') as f:
@@ -510,7 +515,7 @@ class BatchEngine:
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
 
-    def save_output(self, path, data):
+    def save_output(self, path, data, expected_pages=None):
         policy = self.config.get("app_settings", {}).get("overwrite_policy", "skip")
         final_path = path
         if os.path.exists(path):
@@ -520,7 +525,7 @@ class BatchEngine:
             if policy == "version":
                 final_path = self.unique_path(path)
         try:
-            self.save_bytes_atomic(final_path, data)
+            self.save_bytes_atomic(final_path, data, expected_pages=expected_pages)
             return final_path
         except Exception as e:
             self.log(f"SAVE FAILED for {os.path.basename(final_path)}: {e}")
@@ -599,7 +604,8 @@ class BatchEngine:
             inside = os.path.commonpath([key_path, project_dir]) == project_dir
         except ValueError:
             inside = False
-        return {"state": "in_project" if inside else "secure", "path": key_path, "secure_dir": secure_dir}
+        return {"state": "in_project" if inside else "secure", "path": key_path,
+                "secure_dir": secure_dir, "sync_service": self.detect_cloud_sync(key_path)}
 
     def move_credentials_to_secure_location(self):
         """Move the key out of the app folder; returns the new path."""
@@ -620,6 +626,56 @@ class BatchEngine:
         self.save_config()
         self.log(f"🔒 Service account key moved to: {new_path}")
         return new_path
+
+    # ------------------------------------------------------------------
+    # Cloud-sync detection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def detect_cloud_sync(path):
+        """Best-effort detection of cloud-synced folders (OneDrive, Dropbox, ...).
+        Returns the service name or None. Files in synced folders leave the machine
+        even though this app never uploads them - the biggest real-world leak vector
+        for the unredacted originals."""
+        if not path:
+            return None
+        p = os.path.abspath(path).lower()
+
+        for env in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+            base = os.environ.get(env)
+            if base and p.startswith(os.path.abspath(base).lower()):
+                return "OneDrive"
+
+        markers = {
+            "onedrive": "OneDrive",
+            "dropbox": "Dropbox",
+            "google drive": "Google Drive",
+            "googledrive": "Google Drive",
+            "icloud": "iCloud",
+            "nextcloud": "Nextcloud",
+            "seafile": "Seafile",
+        }
+        # Match per path segment to avoid false positives on partial words
+        for segment in re.split(r"[\\/]+", p):
+            for marker, service in markers.items():
+                if marker in segment:
+                    return service
+        return None
+
+    def _emit_sync_warnings(self):
+        warnings = []
+        src_service = self.detect_cloud_sync(self.source_folder)
+        if src_service:
+            warnings.append({"where": "source folder", "service": src_service})
+        out_service = self.detect_cloud_sync(self.get_output_folder())
+        if out_service:
+            warnings.append({"where": "output folder", "service": out_service})
+
+        for w in warnings:
+            self.log(f"⚠ The {w['where']} appears to be inside a {w['service']}-synced location - "
+                     "files there are copied to the cloud outside this app's control.")
+        if warnings:
+            self.emit("sync_warning", warnings=warnings)
 
     # ------------------------------------------------------------------
     # Folder scan
@@ -652,6 +708,7 @@ class BatchEngine:
 
         self.emit("scan_start", folder=self.source_folder, count=len(raw_files),
                   output_folder=self.get_output_folder())
+        self._emit_sync_warnings()
 
         if not raw_files:
             self.log("No supported documents found in selected folder.")
@@ -812,17 +869,19 @@ class BatchEngine:
 
                     if results:
                         doc_stats = results.get("stats", {})
+                        # PDF outputs must have exactly as many pages as the input
+                        expected_pages = doc_stats.get("pages") if filename.lower().endswith(".pdf") else None
 
                         if results.get("selectable"):
                             target = os.path.join(output_folder, f"anonymized_{filename}")
-                            saved = self.save_output(target, results["selectable"])
+                            saved = self.save_output(target, results["selectable"], expected_pages=expected_pages)
                             if saved:
                                 saved_paths.append(("selectable", saved))
                                 success = True
 
                         if results.get("non_selectable"):
                             target = os.path.join(output_folder, f"anonymized_flattened_{filename}")
-                            saved = self.save_output(target, results["non_selectable"])
+                            saved = self.save_output(target, results["non_selectable"], expected_pages=expected_pages)
                             if saved:
                                 saved_paths.append(("non_selectable", saved))
                                 success = True

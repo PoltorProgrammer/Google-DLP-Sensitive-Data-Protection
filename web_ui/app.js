@@ -275,6 +275,14 @@ function handleEvent(ev) {
     case "summary":
       showSummary(ev);
       break;
+    case "sync_warning": {
+      const parts = ev.warnings.map((w) => `the ${w.where} is inside a ${w.service}-synced location`);
+      $("syncBannerText").textContent =
+        `☁⚠ Careful: ${parts.join(" and ")} — synced files are copied to the cloud outside this app's control. ` +
+        `Consider a local, non-synced folder for clinical originals.`;
+      $("syncBanner").classList.remove("hidden");
+      break;
+    }
     case "error":
       toast(ev.message);
       break;
@@ -518,6 +526,8 @@ function wire() {
     $("credBanner").classList.add("hidden");
     appendLog("--:--:--", "⚠ Service account key left in app folder. Avoid zipping or sharing this folder.");
   });
+
+  $("btnDismissSync").addEventListener("click", () => $("syncBanner").classList.add("hidden"));
 
   // Best-effort folder drag & drop (pywebview exposes real paths)
   const card = $("folderCard");

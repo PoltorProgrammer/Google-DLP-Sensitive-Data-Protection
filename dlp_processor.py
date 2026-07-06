@@ -311,6 +311,18 @@ class ClinicalDocumentProcessor:
 
         return list(variations)
 
+    def _inspect_with_retry(self, request, attempts=3):
+        """Retry transient DLP failures so one network blip doesn't abort a document."""
+        for attempt in range(attempts):
+            try:
+                return self.dlp_client.inspect_content(request=request)
+            except Exception as e:
+                if attempt == attempts - 1:
+                    raise
+                wait = 1.5 * (attempt + 1)
+                self.log(f"       Transient DLP error (attempt {attempt+1}/{attempts}): {e}. Retrying in {wait:.0f}s...")
+                time.sleep(wait)
+
     def _process_image(self, filepath: str, inspect_config) -> bytes:
         with open(filepath, "rb") as f:
             image_bytes = f.read()
@@ -360,8 +372,7 @@ class ClinicalDocumentProcessor:
             "region": self.dlp_parent,
             "redaction_enabled": should_redact,
             "total_findings": 0,
-            "findings_per_pass": [0] * iterations,
-            "page_errors": 0
+            "findings_per_pass": [0] * iterations
         }
 
         for i in range(total_pages):
@@ -378,7 +389,7 @@ class ClinicalDocumentProcessor:
                         img_bytes = pix.tobytes("png")
 
                         item = {"byte_item": {"type_": dlp_v2.ByteContentItem.BytesType.IMAGE_PNG, "data": img_bytes}}
-                        response = self.dlp_client.inspect_content(
+                        response = self._inspect_with_retry(
                             request={"parent": self.dlp_parent, "inspect_config": inspect_config, "item": item}
                         )
 
@@ -409,10 +420,19 @@ class ClinicalDocumentProcessor:
                 new_page.insert_image(page.rect, stream=redacted_img_bytes)
 
             except Exception as e:
-                stats["page_errors"] += 1
-                self.log(f"       Error on page {i+1}: {e}")
+                # A skipped page would silently disappear from the output - a missing
+                # page in a clinical document is worse than a failed file. Abort.
+                raise RuntimeError(
+                    f"Page {i+1}/{total_pages} could not be processed safely: {e}. "
+                    "Document aborted so no output with missing pages is saved."
+                ) from e
 
             self.log(f"Page {i+1} completed", metadata={"page_done": i+1})
+
+        if len(flattened_doc) != total_pages:
+            raise RuntimeError(
+                f"Output has {len(flattened_doc)} pages but the input has {total_pages} - aborting."
+            )
 
         # --- GENERATE OUTPUTS ---
         results = {"stats": stats}
@@ -560,7 +580,7 @@ class ClinicalDocumentProcessor:
 
         for start in range(0, len(full_text), MAX_TEXT_INSPECT_CHARS):
             chunk = full_text[start:start + MAX_TEXT_INSPECT_CHARS]
-            response = self.dlp_client.inspect_content(
+            response = self._inspect_with_retry(
                 request={
                     "parent": self.dlp_parent,
                     "inspect_config": verify_config,

@@ -23,6 +23,13 @@
   <button class="btn btn-ghost" id="btnSettings" title="Settings">⚙ Settings</button>
 </header>
 
+<div class="banner banner-warn hidden" id="syncBanner">
+  <span id="syncBannerText"></span>
+  <span class="banner-actions">
+    <button class="btn btn-small btn-ghost" id="btnDismissSync">Dismiss</button>
+  </span>
+</div>
+
 <div class="banner banner-warn hidden" id="credBanner">
   <span>🔑 Your Google service account key is stored <b>inside the app folder</b>. If this folder is zipped, shared or synced, the key travels with it.</span>
   <span class="banner-actions">

@@ -19,3 +19,4 @@ audit_log.jsonl
 *.part
 *.tmp
 .claude/
+.pytest_cache/

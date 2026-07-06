@@ -1,5 +1,8 @@
 # Clinical Document Anonymizer (Google DLP)
 
+[![CI](https://github.com/PoltorProgrammer/Google-DLP-Sensitive-Data-Protection/actions/workflows/ci.yml/badge.svg)](https://github.com/PoltorProgrammer/Google-DLP-Sensitive-Data-Protection/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ## Installation & Usage Guide
 
 ### 🪟 Windows
@@ -98,7 +101,7 @@ All other options (output folder, overwrite policy, outputs to generate, redacti
 
 1.  **Direct Processing**: The app reads your local PDF files and streams them securely to the **Google Cloud DLP** API in your configured region.
 2.  **Transient Redaction**: The API processes the file in-memory (RAM) to redact identifying information (Names, Phones, Emails, Credit Cards, national IDs), while keeping Dates and Locations visible.
-3.  **Trustworthy Saving**: Results are validated and written atomically — a file is only marked **Completed** if its output exists and opens cleanly, so a crash can never leave a half-written file that looks finished.
+3.  **Trustworthy Saving**: Results are validated and written atomically — a file is only marked **Completed** if its output exists, opens cleanly and has **exactly as many pages as the input**. A page that fails to process aborts the whole document (after automatic retries) instead of silently disappearing from the output.
 4.  **Verification Scan** (optional, on by default): after saving, the app re-inspects the finished output's text layer and flags any document with possible residual sensitive text for manual review.
 5.  **Audit Trail** (optional, on by default): one JSON line per document (`audit_log.jsonl` in the output folder) records timestamps, SHA-256 hashes of input/outputs, the region used, redaction settings and verification results — never document content or keyword values.
 6.  **Result**: The redacted file is saved to your chosen output folder (default: `processed/` next to the source). **No data is stored in the cloud.**
@@ -120,10 +123,19 @@ The app uses a modern HTML interface rendered in a **native window** (via `pyweb
 *   **Fully offline UI** — every style and script is bundled locally and a strict Content-Security-Policy blocks any remote resource, so the interface itself can never contact the internet. Only the Python backend talks to Google's APIs.
 *   **Built-in review workflow** — documents flagged by the verification scan get a **Preview** button that renders the anonymized output right in the app (locally, via PyMuPDF) so you can check flagged pages without hunting through folders.
 *   Drag & drop a folder onto the app, live per-file status badges, progress bar with time estimation, and a settings panel for everything.
+*   **Cloud-sync warnings** — if the source or output folder sits inside OneDrive, Dropbox, Google Drive or similar, the app warns you: synced folders copy the unredacted originals to the cloud outside the app's control.
 
 If `pywebview` is not installed, the launcher automatically falls back to the classic Tkinter interface (`batch_processor_gui.py`).
 
 **Architecture note**: all processing logic lives in `batch_core.py` (engine) and `dlp_processor.py` (Google Cloud calls). The interfaces (`app_webview.py` + `web_ui/`, or the Tkinter fallback) are thin layers on top — the security guarantees are identical in both.
+
+---
+
+## Development
+
+- Run the test suite: `pip install -r requirements-dev.txt && pytest tests/ -v`
+- CI runs on every push/PR (Ubuntu + Windows, Python 3.11/3.12); Dependabot keeps dependencies patched.
+- To report security issues, see [SECURITY.md](SECURITY.md). Licensed under [MIT](LICENSE).
 
 ---
 
