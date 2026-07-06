@@ -729,6 +729,28 @@ function wire() {
     if (!hidden) pane.scrollTop = pane.scrollHeight;
   });
 
+  // Copy the whole log (must not toggle the collapse)
+  $("btnCopyLog").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const text = $("logPane").textContent;
+    if (!text.trim()) { toast("The log is empty.", true); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Execution log copied to clipboard.", true);
+    } catch (err) {
+      // Fallback when the Clipboard API is unavailable in this context
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      toast(ok ? "Execution log copied to clipboard." : "Could not copy the log.", ok);
+    }
+  });
+
   // Keyboard: arrow keys turn pages when not typing in a field
   document.addEventListener("keydown", (e) => {
     if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;

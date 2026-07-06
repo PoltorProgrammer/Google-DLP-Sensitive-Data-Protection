@@ -90,7 +90,10 @@
     <section class="card">
       <div class="card-header log-toggle" id="logToggle" title="Show / hide the execution log">
         <h2><span class="chev" id="logChev">▸</span> Execution log</h2>
-        <span class="counts" id="envInfo"></span>
+        <span class="log-header-right">
+          <span class="counts" id="envInfo"></span>
+          <button class="btn btn-small" id="btnCopyLog" title="Copy the whole log to the clipboard">⧉ Copy log</button>
+        </span>
       </div>
       <pre class="log hidden" id="logPane"></pre>
     </section>

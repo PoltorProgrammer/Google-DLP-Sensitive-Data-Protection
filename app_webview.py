@@ -154,6 +154,7 @@ def run_webview():
         width=1320,
         height=840,
         min_size=(1024, 660),
+        text_select=True,  # allow selecting/copying text (log, paths, filenames)
     )
     api._window = window
 

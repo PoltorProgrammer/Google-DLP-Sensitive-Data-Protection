@@ -280,6 +280,10 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .log-toggle { cursor: pointer; user-select: none; margin-bottom: 0; }
 .log-toggle:hover h2 { color: var(--accent); }
 .chev { display: inline-block; width: 14px; color: var(--muted); }
+.log-header-right { display: flex; align-items: center; gap: 10px; }
+
+/* Text is selectable app-wide; the log especially so */
+.log { user-select: text; cursor: text; }
 
 /* ---------- Modals ---------- */
 .modal-backdrop {
