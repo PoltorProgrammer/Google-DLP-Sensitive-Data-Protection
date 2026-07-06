@@ -381,6 +381,18 @@ fieldset input[type="number"], fieldset select {
 .viewer-tags { margin-top: 8px; }
 .viewer-tags .chips { margin-top: 4px; min-height: 4px; }
 
+.tag-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: 999px;
+  padding: 0 7px;
+  margin-left: 7px;
+  white-space: nowrap;
+}
+
 .wordbox {
   position: absolute;
   cursor: pointer;

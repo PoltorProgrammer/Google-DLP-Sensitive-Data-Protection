@@ -68,8 +68,8 @@
         <button class="btn" id="btnAddKw">Add</button>
         <label class="tag-target" id="tagTargetWrap">for
           <select id="tagTarget">
-            <option value="global">all files</option>
-            <option value="file">this file only</option>
+            <option value="file" selected>this document</option>
+            <option value="global">all documents</option>
           </select>
         </label>
       </div>
@@ -156,7 +156,7 @@
     </div>
 
     <div class="viewer-tags">
-      <span class="hint" id="tagChipsLabel">Tags affecting this document:</span>
+      <span class="hint" id="tagChipsLabel">This document's tags (plus global ones marked G):</span>
       <div class="chips" id="tagChips"></div>
     </div>
   </aside>

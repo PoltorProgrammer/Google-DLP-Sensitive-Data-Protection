@@ -89,7 +89,11 @@ function addFileRow(name, status, pages, sizeMb) {
   const tr = document.createElement("tr");
 
   const tdName = document.createElement("td");
-  tdName.textContent = name;
+  const nameSpan = document.createElement("span");
+  nameSpan.textContent = name;
+  const tagCount = document.createElement("span");
+  tagCount.className = "tag-count hidden";
+  tdName.append(nameSpan, tagCount);
 
   const tdPages = document.createElement("td");
   tdPages.className = "num";
@@ -105,9 +109,19 @@ function addFileRow(name, status, pages, sizeMb) {
   tr.addEventListener("click", () => selectFile(name));
   $("filesBody").appendChild(tr);
 
-  const entry = { tr, badgeCell: tdBadge, status, pages, sizeMb };
+  const entry = { tr, badgeCell: tdBadge, tagCountEl: tagCount, status, pages, sizeMb };
   state.files.set(name, entry);
   setFileStatus(name, status);
+  updateTagIndicators();
+}
+
+function updateTagIndicators() {
+  // Per-document tag counters in the file list ("each document has its own tags")
+  for (const [name, entry] of state.files) {
+    const n = (state.keywords.perFile[name] || []).length;
+    entry.tagCountEl.textContent = n ? `🏷 ${n}` : "";
+    entry.tagCountEl.classList.toggle("hidden", n === 0);
+  }
 }
 
 function setFileStatus(name, status) {
@@ -157,10 +171,11 @@ function selectFile(name) {
 
 function renderKeywordUI() {
   const sel = state.selectedFile;
-  $("kwTitle").textContent = "Redaction keywords";
+  $("kwTitle").textContent = sel ? `Tags — ${sel}` : "Redaction tags";
   $("kwHint").textContent =
-    "Words are expanded into hundreds of spelling variants and erased from the documents. " +
-    "Click a document below to preview it, then click words on the page to tag them.";
+    "Each document keeps its own tags: click a document, then click words on its pages. " +
+    "Switch to 'all documents' for terms that must be erased everywhere. " +
+    "Every tag is expanded into hundreds of spelling variants.";
 
   const box = $("chipContainer");
   box.replaceChildren();
@@ -178,12 +193,15 @@ function renderKeywordUI() {
     box.appendChild(chip);
   };
 
-  for (const kw of state.keywords.global) mkChip(kw, true);
+  // The document's own tags come first; global (G) tags after
   if (sel) {
     for (const kw of (state.keywords.perFile[sel] || [])) {
       if (!state.keywords.global.includes(kw)) mkChip(kw, false);
     }
   }
+  for (const kw of state.keywords.global) mkChip(kw, true);
+
+  updateTagIndicators();
 }
 
 function addKeyword() {
@@ -581,10 +599,11 @@ function renderTagChips() {
     box.appendChild(chip);
   };
 
-  for (const kw of state.keywords.global) mkChip(kw, true);
+  // This document's own tags first; global (G) tags after
   for (const kw of (state.keywords.perFile[tagState.name] || [])) {
     if (!state.keywords.global.includes(kw)) mkChip(kw, false);
   }
+  for (const kw of state.keywords.global) mkChip(kw, true);
 
   if (!box.children.length) {
     const none = document.createElement("span");
@@ -592,6 +611,7 @@ function renderTagChips() {
     none.textContent = "none yet — click words on the page or type one above";
     box.appendChild(none);
   }
+  updateTagIndicators();
 }
 
 /* ---------------- settings modal ---------------- */
