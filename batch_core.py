@@ -27,7 +27,7 @@ import fitz  # PyMuPDF
 
 from dlp_processor import ClinicalDocumentProcessor
 
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.4.0"
 HISTORY_FILE = "performance_history.json"
 CONFIG_FILE = "config.json"
 AUDIT_FILE = "audit_log.jsonl"
@@ -1077,6 +1077,69 @@ class BatchEngine:
             )
         return self._ocr_processor
 
+    # Cap the rendered long side so one page never becomes a multi-MB bridge
+    # payload (real scans at 300dpi would otherwise be huge as base64).
+    MAX_PREVIEW_PX = 2200
+    PREVIEW_JPEG_QUALITY = 80
+
+    def _render_preview_page(self, path, page_number, zoom, with_words, display_name):
+        """Shared paged renderer for source (click-to-tag) and output previews.
+        Returns one page as a JPEG data URI - single-page payloads keep the UI
+        bridge fast even for large scanned documents."""
+        zoom = max(0.5, min(3.0, float(zoom)))
+        doc = fitz.open(path)
+        try:
+            page_count = len(doc)
+            page_number = max(0, min(int(page_number), page_count - 1))
+            page = doc.load_page(page_number)
+
+            long_side_pts = max(page.rect.width, page.rect.height) or 1
+            effective = max(0.2, min(zoom, self.MAX_PREVIEW_PX / long_side_pts))
+
+            pix = page.get_pixmap(matrix=fitz.Matrix(effective, effective))
+            image_b64 = base64.b64encode(
+                pix.tobytes("jpeg", jpg_quality=self.PREVIEW_JPEG_QUALITY)).decode()
+
+            words = []
+            has_text_layer = True
+            ocr_done = True
+            if with_words:
+                # Local text layer: (x0, y0, x1, y1, word, block, line, word_no)
+                words = [
+                    {"text": w[4],
+                     "x0": w[0] * effective, "y0": w[1] * effective,
+                     "x1": w[2] * effective, "y1": w[3] * effective}
+                    for w in page.get_text("words") if w[4].strip()
+                ]
+                has_text_layer = len(words) > 0
+                ocr_done = has_text_layer
+
+                if not has_text_layer:
+                    cached = self._ocr_words_cache.get(self._ocr_cache_key(path, page_number))
+                    if cached is not None:
+                        ocr_done = True
+                        words = [
+                            {"text": w["text"],
+                             "x0": w["x0"] * effective, "y0": w["y0"] * effective,
+                             "x1": w["x1"] * effective, "y1": w["y1"] * effective}
+                            for w in cached
+                        ]
+
+            return {
+                "filename": display_name,
+                "page": page_number,
+                "page_count": page_count,
+                "image": f"data:image/jpeg;base64,{image_b64}",
+                "width": pix.width,
+                "height": pix.height,
+                "words": words,
+                "has_text_layer": has_text_layer,
+                "ocr_done": ocr_done,
+                "ocr_available": self._ocr_credentials_ready() if with_words else True,
+            }
+        finally:
+            doc.close()
+
     def get_source_preview(self, filename, page_number=0, zoom=1.5):
         """Render one page of the ORIGINAL document with word hit-boxes for
         click-to-tag. Rendering and text-layer extraction are local (PyMuPDF);
@@ -1084,51 +1147,17 @@ class BatchEngine:
         path = self._resolve_source_path(filename)
         if not path:
             return None
+        return self._render_preview_page(path, page_number, zoom,
+                                         with_words=True, display_name=filename)
 
-        zoom = max(0.5, min(3.0, float(zoom)))
-        doc = fitz.open(path)
-        try:
-            page_count = len(doc)
-            page_number = max(0, min(int(page_number), page_count - 1))
-            page = doc.load_page(page_number)
-            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
-            image_b64 = base64.b64encode(pix.tobytes("png")).decode()
-
-            # Local text layer: (x0, y0, x1, y1, word, block, line, word_no)
-            words = [
-                {"text": w[4],
-                 "x0": w[0] * zoom, "y0": w[1] * zoom,
-                 "x1": w[2] * zoom, "y1": w[3] * zoom}
-                for w in page.get_text("words") if w[4].strip()
-            ]
-            has_text_layer = len(words) > 0
-            ocr_done = has_text_layer
-
-            if not has_text_layer:
-                cached = self._ocr_words_cache.get(self._ocr_cache_key(path, page_number))
-                if cached is not None:
-                    ocr_done = True
-                    words = [
-                        {"text": w["text"],
-                         "x0": w["x0"] * zoom, "y0": w["y0"] * zoom,
-                         "x1": w["x1"] * zoom, "y1": w["y1"] * zoom}
-                        for w in cached
-                    ]
-
-            return {
-                "filename": filename,
-                "page": page_number,
-                "page_count": page_count,
-                "image": f"data:image/png;base64,{image_b64}",
-                "width": pix.width,
-                "height": pix.height,
-                "words": words,
-                "has_text_layer": has_text_layer,
-                "ocr_done": ocr_done,
-                "ocr_available": self._ocr_credentials_ready(),
-            }
-        finally:
-            doc.close()
+    def get_output_preview(self, filename, page_number=0, zoom=1.5):
+        """Render one page of the anonymized OUTPUT of filename (paged, local)."""
+        for path in self.expected_outputs(filename):
+            if os.path.exists(path) and self.is_valid_output(path):
+                return self._render_preview_page(path, page_number, zoom,
+                                                 with_words=False,
+                                                 display_name=os.path.basename(path))
+        return None
 
     def ocr_source_page(self, filename, page_number=0):
         """Explicit user action: OCR one source page (region-pinned Vision) so a
@@ -1159,29 +1188,3 @@ class BatchEngine:
         self.log(f"Found {len(words)} words on page {page_number+1} - click any of them to tag.")
         return len(words)
 
-    # ------------------------------------------------------------------
-    # Output preview (for the review workflow)
-    # ------------------------------------------------------------------
-
-    def get_preview(self, filename, max_pages=6):
-        """Render the anonymized output of `filename` as page images (data URIs).
-        Everything stays local - bytes never leave the machine."""
-        for p in self.expected_outputs(filename):
-            if not os.path.exists(p):
-                continue
-            if p.lower().endswith(".pdf") and self.is_valid_output(p):
-                doc = fitz.open(p)
-                pages = []
-                for i in range(min(max_pages, len(doc))):
-                    pix = doc.load_page(i).get_pixmap(matrix=fitz.Matrix(1.3, 1.3))
-                    b64 = base64.b64encode(pix.tobytes("png")).decode()
-                    pages.append(f"data:image/png;base64,{b64}")
-                total = len(doc)
-                doc.close()
-                return {"name": os.path.basename(p), "pages": pages, "total_pages": total}
-            if p.lower().endswith((".png", ".jpg", ".jpeg")):
-                with open(p, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                mime = "image/png" if p.lower().endswith(".png") else "image/jpeg"
-                return {"name": os.path.basename(p), "pages": [f"data:{mime};base64,{b64}"], "total_pages": 1}
-        return None

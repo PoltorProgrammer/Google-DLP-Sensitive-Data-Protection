@@ -104,6 +104,12 @@ function addFileRow(name, status, pages, sizeMb) {
 
   tr.append(tdName, tdPages, tdSize, tdBadge, tdAction);
   tr.addEventListener("click", () => selectFile(name));
+  tr.addEventListener("dblclick", () => {
+    const current = state.files.get(name);
+    if (!current) return;
+    if (["pending", "failed"].includes(current.status)) openTagPreview(name);
+    else if (current.status !== "processing") openOutputPreview(name);
+  });
   $("filesBody").appendChild(tr);
 
   const entry = { tr, badgeCell: tdBadge, actionCell: tdAction, status, pages, sizeMb };
@@ -127,7 +133,7 @@ function setFileStatus(name, status) {
     const btn = document.createElement("button");
     btn.className = "btn btn-small";
     btn.textContent = "Preview";
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openPreview(name); });
+    btn.addEventListener("click", (e) => { e.stopPropagation(); openOutputPreview(name); });
     entry.actionCell.appendChild(btn);
   }
   if (["pending", "failed"].includes(status)) {
@@ -350,6 +356,7 @@ function showSummary(ev) {
 /* ---------------- click-to-tag viewer ---------------- */
 
 const tagState = {
+  mode: "tag",             // "tag" = original document (click-to-tag) | "output" = anonymized result
   name: null, page: 0, zoom: 1.5, pageCount: 1,
   words: [], hasText: false, ocrDone: false, ocrAvailable: false,
   ocrConsent: new Set(),   // documents where the user already approved Cloud OCR
@@ -367,11 +374,32 @@ function taggedSetFor(name) {
   return set;
 }
 
+function showTagChrome(on) {
+  // Tagging-specific UI (hints, target selector, chips, OCR notice) is hidden
+  // when the viewer shows an anonymized output.
+  $("tagHint").classList.toggle("hidden", !on);
+  $("tagTargetWrap").classList.toggle("hidden", !on);
+  $("tagChips").classList.toggle("hidden", !on);
+  if (!on) $("ocrNotice").classList.add("hidden");
+}
+
 async function openTagPreview(name) {
+  tagState.mode = "tag";
   tagState.name = name;
   tagState.page = 0;
   $("tagTitle").textContent = `Tag for erasure — ${name}`;
   $("tagTarget").value = "global";
+  showTagChrome(true);
+  $("tagModal").classList.remove("hidden");
+  await loadTagPage();
+}
+
+async function openOutputPreview(name) {
+  tagState.mode = "output";
+  tagState.name = name;
+  tagState.page = 0;
+  $("tagTitle").textContent = `Anonymized output — ${name}`;
+  showTagChrome(false);
   $("tagModal").classList.remove("hidden");
   await loadTagPage();
 }
@@ -381,12 +409,26 @@ async function loadTagPage() {
   tagState.loading = true;
   $("tagStatus").textContent = "Rendering…";
   try {
-    const data = await apiCall(api().get_source_preview(tagState.name, tagState.page, tagState.zoom));
-    if (!data) { $("tagStatus").textContent = "File not found."; return; }
+    let data;
+    try {
+      data = (tagState.mode === "tag")
+        ? await api().get_source_preview(tagState.name, tagState.page, tagState.zoom)
+        : await api().get_output_preview(tagState.name, tagState.page, tagState.zoom);
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      $("tagStatus").textContent = `⚠ Could not render: ${msg.replace(/^.*?Error:\s*/, "")}`;
+      return;
+    }
+    if (!data) {
+      $("tagStatus").textContent = (tagState.mode === "tag")
+        ? "⚠ File not found in the source folder."
+        : "⚠ No output file found for this document yet.";
+      return;
+    }
 
     tagState.page = data.page;
     tagState.pageCount = data.page_count;
-    tagState.words = data.words;
+    tagState.words = data.words || [];
     tagState.hasText = data.has_text_layer;
     tagState.ocrDone = data.ocr_done;
     tagState.ocrAvailable = data.ocr_available;
@@ -401,12 +443,13 @@ async function loadTagPage() {
     $("tagStatus").textContent = "";
 
     renderWordBoxes();
-    updateOcrNotice();
-    tagState.loading = false;
-
-    // Consent already given for this document -> OCR further scanned pages automatically
-    if (!tagState.ocrDone && tagState.ocrAvailable && tagState.ocrConsent.has(tagState.name)) {
-      await runOcrCurrentPage();
+    if (tagState.mode === "tag") {
+      updateOcrNotice();
+      tagState.loading = false;
+      // Consent already given for this document -> OCR further scanned pages automatically
+      if (!tagState.ocrDone && tagState.ocrAvailable && tagState.ocrConsent.has(tagState.name)) {
+        await runOcrCurrentPage();
+      }
     }
   } finally {
     tagState.loading = false;
@@ -459,7 +502,7 @@ function renderWordBoxes() {
     box.addEventListener("click", () => toggleTagWord(clean));
     stage.appendChild(box);
   }
-  renderTagChips();
+  if (tagState.mode === "tag") renderTagChips();
 }
 
 function toggleTagWord(word) {
@@ -509,32 +552,6 @@ function renderTagChips() {
   for (const kw of state.keywords.global) mkChip(kw, true);
   for (const kw of (state.keywords.perFile[tagState.name] || [])) {
     if (!state.keywords.global.includes(kw)) mkChip(kw, false);
-  }
-}
-
-/* ---------------- preview modal ---------------- */
-
-async function openPreview(name) {
-  $("previewTitle").textContent = `Preview — ${name}`;
-  $("previewInfo").textContent = "Rendering…";
-  $("previewPages").replaceChildren();
-  $("previewModal").classList.remove("hidden");
-
-  try {
-    const data = await api().get_preview(name, 6);
-    if (!data) {
-      $("previewInfo").textContent = "No output file found for this document.";
-      return;
-    }
-    $("previewInfo").textContent =
-      `${data.name} — showing ${data.pages.length} of ${data.total_pages} page(s). Rendered locally; nothing leaves this machine.`;
-    for (const src of data.pages) {
-      const img = document.createElement("img");
-      img.src = src;
-      $("previewPages").appendChild(img);
-    }
-  } catch (e) {
-    $("previewInfo").textContent = "Preview failed.";
   }
 }
 
@@ -685,10 +702,7 @@ function wire() {
     });
   });
 
-  // Preview
-  $("btnPreviewClose").addEventListener("click", () => $("previewModal").classList.add("hidden"));
-
-  // Click-to-tag viewer
+  // Document viewer (click-to-tag + output preview)
   $("btnTagClose").addEventListener("click", () => $("tagModal").classList.add("hidden"));
   $("tagPrev").addEventListener("click", () => { if (tagState.page > 0) { tagState.page--; loadTagPage(); } });
   $("tagNext").addEventListener("click", () => { if (tagState.page < tagState.pageCount - 1) { tagState.page++; loadTagPage(); } });
@@ -732,7 +746,7 @@ function wire() {
   });
 
   // Close modals on backdrop click
-  for (const id of ["settingsModal", "summaryModal", "previewModal", "tagModal"]) {
+  for (const id of ["settingsModal", "summaryModal", "tagModal"]) {
     $(id).addEventListener("click", (e) => {
       if (e.target === $(id)) $(id).classList.add("hidden");
     });

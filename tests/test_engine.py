@@ -176,17 +176,20 @@ def test_audit_entry_written_as_jsonl(engine, tmp_path):
     assert entry["status"] == "success"
 
 
-def test_preview_renders_local_data_uris(engine, tmp_path):
+def test_output_preview_is_paged_jpeg(engine, tmp_path):
     src = tmp_path / "data"
     out = src / "processed"
     out.mkdir(parents=True)
-    write_pdf(out / "anonymized_doc1.pdf", pages=2)
+    write_pdf(out / "anonymized_doc1.pdf", pages=3)
     engine.source_folder = str(src)
 
-    preview = engine.get_preview("doc1.pdf", max_pages=1)
-    assert preview["total_pages"] == 2
-    assert len(preview["pages"]) == 1
-    assert preview["pages"][0].startswith("data:image/png;base64,")
+    preview = engine.get_output_preview("doc1.pdf", page_number=1)
+    assert preview["page"] == 1 and preview["page_count"] == 3
+    assert preview["image"].startswith("data:image/jpeg;base64,")
+    assert preview["words"] == []  # output mode carries no tagging boxes
+    # page number clamped, missing file -> None
+    assert engine.get_output_preview("doc1.pdf", page_number=99)["page"] == 2
+    assert engine.get_output_preview("nope.pdf") is None
 
 
 def test_start_batch_guards(engine):
@@ -222,7 +225,7 @@ def test_source_preview_extracts_text_layer_words(engine, tmp_path):
     prev = engine.get_source_preview("doc.pdf", page_number=0, zoom=2.0)
     assert prev["page_count"] == 2
     assert prev["has_text_layer"] is True and prev["ocr_done"] is True
-    assert prev["image"].startswith("data:image/png;base64,")
+    assert prev["image"].startswith("data:image/jpeg;base64,")
 
     texts = [w["text"] for w in prev["words"]]
     assert "Hello" in texts and "Maria" in texts
@@ -266,6 +269,21 @@ def test_source_preview_scanned_page_reports_no_text(engine, tmp_path):
     assert prev["ocr_done"] is False
     assert prev["words"] == []
     assert prev["ocr_available"] is False  # no credentials in tmp dir
+
+
+def test_preview_resolution_is_capped(engine, tmp_path):
+    """One page must never become a multi-MB bridge payload: the rendered long
+    side is capped even when the caller asks for maximum zoom."""
+    src = tmp_path / "data"
+    src.mkdir()
+    doc = fitz.open()
+    doc.new_page(width=1200, height=1600)  # large page in points
+    doc.save(str(src / "big.pdf"))
+    doc.close()
+    engine.source_folder = str(src)
+
+    prev = engine.get_source_preview("big.pdf", zoom=3.0)
+    assert max(prev["width"], prev["height"]) <= engine.MAX_PREVIEW_PX + 2
 
 
 def test_ocr_source_page_requires_credentials(engine, tmp_path):

@@ -179,23 +179,11 @@
   </div>
 </div>
 
-<!-- ============ Preview modal (anonymized outputs) ============ -->
-<div class="modal-backdrop hidden" id="previewModal">
-  <div class="modal modal-wide">
-    <h2 id="previewTitle">Preview</h2>
-    <p class="hint" id="previewInfo"></p>
-    <div class="preview-pages" id="previewPages"></div>
-    <div class="modal-actions">
-      <button class="btn" id="btnPreviewClose">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============ Click-to-tag modal (original documents) ============ -->
+<!-- ============ Document viewer: click-to-tag (originals) + output preview ============ -->
 <div class="modal-backdrop hidden" id="tagModal">
   <div class="modal modal-xl">
     <h2 id="tagTitle">Tag for erasure</h2>
-    <p class="hint">Click any word to tag it for erasure everywhere — name combinations and OCR misspellings are covered automatically. Click a highlighted word to un-tag it.</p>
+    <p class="hint" id="tagHint">Click any word to tag it for erasure everywhere — name combinations and OCR misspellings are covered automatically. Click a highlighted word to un-tag it.</p>
 
     <div class="tag-toolbar">
       <button class="btn btn-small" id="tagPrev">‹ Prev</button>
@@ -205,7 +193,7 @@
       <button class="btn btn-small" id="tagZoomOut" title="Zoom out">−</button>
       <button class="btn btn-small" id="tagZoomIn" title="Zoom in">+</button>
       <span class="toolbar-sep"></span>
-      <label class="tag-target">Tag applies to:
+      <label class="tag-target" id="tagTargetWrap">Tag applies to:
         <select id="tagTarget">
           <option value="global">All files (erase everywhere)</option>
           <option value="file">This file only</option>

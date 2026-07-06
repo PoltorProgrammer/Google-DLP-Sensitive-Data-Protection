@@ -130,13 +130,12 @@ class Api:
     def move_credentials(self):
         return self._engine.move_credentials_to_secure_location()
 
-    # --- preview --------------------------------------------------------
-    def get_preview(self, filename, max_pages=6):
-        return self._engine.get_preview(filename, max_pages=max_pages)
-
-    # --- click-to-tag (source preview) ----------------------------------
+    # --- document viewer (paged: source for tagging, output for review) --
     def get_source_preview(self, filename, page=0, zoom=1.5):
         return self._engine.get_source_preview(filename, page_number=page, zoom=zoom)
+
+    def get_output_preview(self, filename, page=0, zoom=1.5):
+        return self._engine.get_output_preview(filename, page_number=page, zoom=zoom)
 
     def ocr_source_page(self, filename, page=0):
         return self._engine.ocr_source_page(filename, page_number=page)
