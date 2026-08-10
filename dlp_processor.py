@@ -47,6 +47,12 @@ MAX_DICT_BYTES = 100000
 # DLP inspect_content text payload limit is 0.5 MiB; chunk well below it.
 MAX_TEXT_INSPECT_CHARS = 100000
 
+class ProcessingCancelled(Exception):
+    """Raised when the user stops the batch mid-document. Nothing is saved for
+    the interrupted document (page-integrity guarantee), so it can simply be
+    processed again later."""
+
+
 IMAGE_BYTE_TYPES = {
     ".png": dlp_v2.ByteContentItem.BytesType.IMAGE_PNG,
     ".jpg": dlp_v2.ByteContentItem.BytesType.IMAGE_JPEG,
@@ -58,12 +64,13 @@ IMAGE_BYTE_TYPES = {
 class ClinicalDocumentProcessor:
     def __init__(self, project_id: str, location: str = "global", credentials_file: str = None,
                  log_callback=None, translation_location: str = "us-central1",
-                 allow_global_fallback: bool = False):
+                 allow_global_fallback: bool = False, cancel_check=None):
         self.project_id = project_id
         self.location = location or "global"
         self.translation_location = translation_location or "us-central1"
         self.log_callback = log_callback
         self.allow_global_fallback = allow_global_fallback
+        self.cancel_check = cancel_check  # callable -> True aborts between pages
         # Some DLP features (image inspection) are unavailable in single regions
         # and require the multi-region ('europe'/'us'). Resolved lazily per feature.
         self._resolved_parents = {}
@@ -323,6 +330,10 @@ class ClinicalDocumentProcessor:
 
         return list(variations)
 
+    def _check_cancelled(self):
+        if self.cancel_check and self.cancel_check():
+            raise ProcessingCancelled("Processing stopped by user.")
+
     @staticmethod
     def _is_unsupported_location_error(exc) -> bool:
         return "not supported in this location" in str(exc).lower()
@@ -450,6 +461,7 @@ class ClinicalDocumentProcessor:
         }
 
         for i in range(total_pages):
+            self._check_cancelled()  # Stop takes effect after the current page
             page = doc.load_page(i)
             self.log(f"Analyzing & Digitalizing Page {i+1}/{total_pages}...")
 
@@ -491,6 +503,8 @@ class ClinicalDocumentProcessor:
                 new_page = flattened_doc.new_page(width=page.rect.width, height=page.rect.height)
                 new_page.insert_image(page.rect, stream=redacted_img_bytes)
 
+            except ProcessingCancelled:
+                raise
             except Exception as e:
                 # A skipped page would silently disappear from the output - a missing
                 # page in a clinical document is worse than a failed file. Abort.
@@ -527,6 +541,7 @@ class ClinicalDocumentProcessor:
             selectable_doc = fitz.open("pdf", flattened_bytes)
 
             for i in range(len(selectable_doc)):
+                self._check_cancelled()  # Stop also interrupts the OCR overlay stage
                 page = selectable_doc.load_page(i)
                 page_img_bytes = page.get_pixmap(matrix=mat).tobytes("png")
 
@@ -712,6 +727,7 @@ class ClinicalDocumentProcessor:
             chunk_num = 1
 
             for i in range(total_pages):
+                self._check_cancelled()
                 self.log(f"Preparing Page {i+1}...", metadata={"trans_flatten_start": True})
                 # We flatten page-by-page to check size
                 page = doc.load_page(i)
