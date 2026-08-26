@@ -1,6 +1,6 @@
 google-auth>=2.43,<3
 google-cloud-dlp>=3.33,<4
 google-cloud-vision>=3.11,<4
-google-cloud-translate>=3.23,<4
+google-cloud-translate>=3.27.0,<4
 pymupdf>=1.26,<2
 pywebview>=5.3,<7
